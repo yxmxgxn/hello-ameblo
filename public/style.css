@@ -4,7 +4,7 @@
   --text: #1f1f1f;
   --muted: #6b6b6b;
   --line: #e4e2dd;
-  --accent: #2d8a4e;        /* アメブロの緑に寄せた */
+  --accent: #2d8c3c;        /* アメブロの緑(ameblo の CSS の --ameba-green) */
   --accent-ink: #ffffff;
   --mark: #fff0a8;
   --mark-ink: #1f1f1f;
@@ -16,7 +16,7 @@
     --text: #e8e8e6;
     --muted: #a0a09c;
     --line: #333432;
-    --accent: #5cc184;
+    --accent: #5eb969;      /* アメブロの --primary-green-40 */
     --accent-ink: #0f1a13;
     --mark: #5b4f12;
     --mark-ink: #fff6cf;
@@ -29,9 +29,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  /* アメブロ本文と同じ指定(Windowsはメイリオ)。検索結果から記事に飛んでも字の雰囲気が変わらない。
-     system-ui を先頭にすると Windows で細い Yu Gothic UI になるので使わない */
-  font-family: Meiryo, "Yu Gothic Medium", -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+  /* Noto Sans JP で統一。system-ui だと Windows で細い Yu Gothic UI になるので使わない */
+  font-family: "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
   line-height: 1.7;
 }
 main, .site-head, .site-foot { max-width: 760px; margin: 0 auto; padding: 0 16px; }
