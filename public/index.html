@@ -36,6 +36,13 @@
     <p class="hint">空白で区切ると「全部含む」記事を探します。メンバーだけ選んで検索すると、その人の記事を一覧できます。</p>
   </form>
 
+  <section id="cal" class="cal" hidden aria-label="日付で見る">
+    <h2 class="cal-h">日付で見る <span class="cal-note">濃いほど投稿が多い月</span></h2>
+    <div id="years" class="years"></div>
+    <div id="month" class="month" hidden></div>
+  </section>
+
+  <p id="period" class="period" hidden><span id="period-t"></span><button id="period-x" type="button" aria-label="期間の指定を外す">×</button></p>
   <p id="status" class="status" aria-live="polite"></p>
   <ol id="results" class="results"></ol>
   <button id="more" class="more" type="button" hidden>もっと見る</button>

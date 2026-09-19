@@ -71,3 +71,7 @@ CREATE TABLE IF NOT EXISTS checks (
   updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS entries_blog_id ON entries(blog, entry_id);
+
+-- 日付で見る(カレンダー)用。published は "2016-03-05T21:00:00.000+09:00"(日本時間)の文字列なので前方一致で月・日を引ける
+CREATE INDEX IF NOT EXISTS entries_member_pub ON entries(member_no, published);
+CREATE INDEX IF NOT EXISTS entries_pub ON entries(published);

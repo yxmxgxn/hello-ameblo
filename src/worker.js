@@ -2,8 +2,9 @@
  * アメブロ検索 Worker (Static Assets 併用)
  *
  * 公開API
- *   GET /api/search?q=&m=&b=&order=&cursor=  本文・タイトルの全文検索。前後数十字だけ返し、本文全体は返さない
+ *   GET /api/search?q=&m=&b=&d=&order=&cursor=  本文・タイトルの全文検索。前後数十字だけ返し、本文全体は返さない
  *   GET /api/members                      絞り込み用のメンバー一覧と収録状況
+ *   GET /api/calendar?m=&b=&ym=           日付で見る用の月別・日別の件数
  *
  * クローラ用API (Authorization: Bearer <CRAWL_TOKEN>。未設定なら存在しないことにする)
  *   GET  /api/crawl/state      ブログごとの進み具合
@@ -163,12 +164,15 @@ async function handleSearch(url, env) {
   const q = url.searchParams.get("q") || "";
   const m = parseInt(url.searchParams.get("m") || "", 10);
   const blog = (url.searchParams.get("b") || "").slice(0, 100);
+  // 期間: "2016" / "2016-03" / "2016-03-05"。published の前方一致(〜 d+"~" 未満)で引く
+  const dRaw = url.searchParams.get("d") || "";
+  const d = /^\d{4}(-\d{2}(-\d{2})?)?$/.test(dRaw) ? dRaw : "";
   const asc = url.searchParams.get("order") === "old";
   const cursor = parseInt(url.searchParams.get("cursor") || "", 10);
 
   const built = q.trim() ? buildMatch(q) : null;
   if (q.trim() && !built) return json({ error: "short", results: [], next: null });
-  if (!built && !Number.isFinite(m)) return json({ results: [], next: null });
+  if (!built && !Number.isFinite(m) && !d) return json({ results: [], next: null });
 
   const cols = "e.entry_id, e.blog, e.title, e.published, e.theme_name, e.body, e.restricted, " +
     "mb.name AS member, b.title AS blog_title";
@@ -183,14 +187,15 @@ async function handleSearch(url, env) {
     binds.push(built.match);
     if (Number.isFinite(m)) { where.push("e.member_no = ?"); binds.push(m); }
     if (blog) { where.push("e.blog = ?"); binds.push(blog); }
+    if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
     if (Number.isFinite(cursor)) { where.push(`entry_fts.rowid ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entry_fts JOIN entries e ON e.entry_id = entry_fts.rowid ${joins} ` +
       `WHERE ${where.join(" AND ")} ORDER BY entry_fts.rowid ${asc ? "ASC" : "DESC"} LIMIT ?`;
   } else {
-    // 語なし・メンバー指定だけ: その人の記事を新しい順に並べる
-    where.push("e.member_no = ?");
-    binds.push(m);
+    // 語なし: メンバー・期間で絞った記事を並べる(カレンダーから日を選んだ時もこれ)
+    if (Number.isFinite(m)) { where.push("e.member_no = ?"); binds.push(m); }
     if (blog) { where.push("e.blog = ?"); binds.push(blog); }
+    if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
     if (Number.isFinite(cursor)) { where.push(`e.entry_id ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entries e ${joins} WHERE ${where.join(" AND ")} ` +
       `ORDER BY e.entry_id ${asc ? "ASC" : "DESC"} LIMIT ?`;
@@ -221,6 +226,34 @@ async function handleSearch(url, env) {
     results: rows,
     next: more ? rows[rows.length - 1].id : null,
     terms: built ? built.terms : [],
+  }, 200, "public, max-age=300");
+}
+
+// 日付で見る: メンバー(・ブログ)の月ごとの件数と、ym を渡せばその月の日ごとの件数
+async function handleCalendar(url, env) {
+  const m = parseInt(url.searchParams.get("m") || "", 10);
+  if (!Number.isFinite(m)) return json({ months: [], days: [] });
+  const blog = (url.searchParams.get("b") || "").slice(0, 100);
+  const ymRaw = url.searchParams.get("ym") || "";
+  const ym = /^\d{4}-\d{2}$/.test(ymRaw) ? ymRaw : "";
+  const where = "member_no = ?" + (blog ? " AND blog = ?" : "");
+  const binds = blog ? [m, blog] : [m];
+  const stmts = [
+    env.DB.prepare(
+      `SELECT substr(published, 1, 7) AS ym, count(*) AS n FROM entries WHERE ${where} AND published IS NOT NULL ` +
+      "GROUP BY ym ORDER BY ym"
+    ).bind(...binds),
+  ];
+  if (ym) {
+    stmts.push(env.DB.prepare(
+      `SELECT substr(published, 1, 10) AS d, count(*) AS n FROM entries WHERE ${where} ` +
+      "AND published >= ? AND published < ? GROUP BY d ORDER BY d"
+    ).bind(...binds, ym, ym + "~"));
+  }
+  const res = await env.DB.batch(stmts);
+  return json({
+    months: res[0].results.map((r) => [r.ym, r.n]),
+    days: ym ? res[1].results.map((r) => [r.d, r.n]) : [],
   }, 200, "public, max-age=300");
 }
 
@@ -454,6 +487,7 @@ export default {
 
     if (p === "/api/search" && request.method === "GET") return handleSearch(url, env);
     if (p === "/api/members" && request.method === "GET") return handleMembers(env);
+    if (p === "/api/calendar" && request.method === "GET") return handleCalendar(url, env);
 
     if (p.startsWith("/api/crawl/")) {
       if (!authorized(request, env)) return new Response("Not found", { status: 404 });
