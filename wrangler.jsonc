@@ -8,6 +8,10 @@
     // /api/* はアセットが無いので、ブラウザで直接開いても Worker が動くよう明示する
     "run_worker_first": ["/api/*"]
   },
+  // 毎時7分に GitHub Actions のクロールを起動する(src/worker.js の scheduled)
+  "triggers": {
+    "crons": ["7 * * * *"]
+  },
   "d1_databases": [
     {
       "binding": "DB",

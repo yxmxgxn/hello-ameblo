@@ -14,7 +14,7 @@
 | `public/` | 画面（静的アセット） |
 | `schema.sql` | D1 のテーブル |
 | `crawler/crawl.py` | アメブロを巡回して Worker に送る（標準ライブラリのみ） |
-| `.github/workflows/crawl.yml` | 毎時クロール |
+| `.github/workflows/crawl.yml` | クロール本体。毎時 Worker の Cron Triggers が起動する（GitHub の schedule は飛ばされるので使わない） |
 | `.github/workflows/deploy.yml` | main への push でスキーマ適用＋デプロイ |
 
 ### 検索の仕組み
@@ -38,7 +38,7 @@
 
 1. Cloudflare ダッシュボードで D1 を作る（名前 `hello-ameblo`）。ID を `wrangler.jsonc` の `database_id` に入れる
 2. GitHub にリポジトリを作って push。Secrets に `CLOUDFLARE_API_TOKEN`（**D1 編集権限つき**）/ `CLOUDFLARE_ACCOUNT_ID` / `CRAWL_TOKEN`（適当な長いランダム文字列）、Variables に `CRAWL_API`（`https://hello-ameblo.<サブドメイン>.workers.dev`）
-3. Worker のシークレットにも同じ `CRAWL_TOKEN` を登録（Workers & Pages → hello-ameblo → 設定 → 変数とシークレット）
+3. Worker のシークレットに同じ `CRAWL_TOKEN` と、`GH_TOKEN`（このリポジトリの Actions: Read and write だけの fine-grained トークン。クロールの起動用）を登録（Workers & Pages → hello-ameblo → 設定 → 変数とシークレット）
 4. Actions の Crawl を手動実行して動作確認
 
 ## ローカルで動かす

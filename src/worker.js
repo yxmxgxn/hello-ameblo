@@ -480,7 +480,37 @@ async function crawlBlog(request, env) {
 
 /* ============================ ルーティング ============================ */
 
+/* ============================ 定期実行 ============================ */
+
+// 毎時、GitHub Actions のクロールを起動する。
+// GitHub の schedule は混雑時に遅れたり飛ばされたりするので、起動だけ Cloudflare の Cron Triggers に任せる。
+// 実行中に次の起動が来ても、crawl.yml の concurrency で順番待ちになるだけ。
+const CRAWL_WORKFLOW = "https://api.github.com/repos/yxmxgxn/hello-ameblo/actions/workflows/crawl.yml/dispatches";
+
+async function dispatchCrawl(env) {
+  if (!env.GH_TOKEN) {
+    console.log("GH_TOKEN 未設定のためクロールを起動しない");
+    return;
+  }
+  const r = await fetch(CRAWL_WORKFLOW, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.GH_TOKEN}`,
+      accept: "application/vnd.github+json",
+      "x-github-api-version": "2022-11-28",
+      "user-agent": "hello-ameblo-cron",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (r.status !== 204) console.log("クロールの起動に失敗", r.status, (await r.text()).slice(0, 300));
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(dispatchCrawl(env));
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     const p = url.pathname;

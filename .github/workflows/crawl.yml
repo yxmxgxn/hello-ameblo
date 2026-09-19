@@ -1,8 +1,8 @@
 name: Crawl
 
+# 起動は毎時 Cloudflare の Worker(Cron Triggers)が workflow_dispatch で行う。
+# GitHub の schedule は混雑時に遅れたり飛ばされたりしたのでやめた。手動実行もここから。
 on:
-  schedule:
-    - cron: "17 * * * *"   # 毎時。過去記事を遡り終えたら新着チェックだけの軽い実行になる
   workflow_dispatch:
     inputs:
       minutes:
@@ -15,9 +15,6 @@ on:
 concurrency:
   group: crawl
   cancel-in-progress: false
-
-permissions:
-  actions: write   # 下の keepalive 用
 
 jobs:
   crawl:
@@ -37,11 +34,3 @@ jobs:
           python crawler/crawl.py \
             --minutes "${{ inputs.minutes || '50' }}" \
             ${{ inputs.blogs && format('--blogs "{0}"', inputs.blogs) || '' }}
-
-      # 公開リポジトリの定期実行は、リポジトリに60日動きが無いと GitHub に止められる。
-      # このリポジトリはクロールしてもコミットが発生しないので、自分で有効化し直して延命する。
-      - name: Keepalive
-        if: github.event_name == 'schedule'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/crawl.yml/enable"
