@@ -520,8 +520,9 @@ async function checkStalled(env) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      username: "アメブロ検索",  // ウェブフックは karin と共用。送り主の表示だけ変える
       embeds: [{
-        title: "アメブロ検索: クロールが止まっています",
+        title: "クロールが止まっています",
         description: `最後に動いたのは ${jst}（日本時間）。${Math.floor(hours)}時間動いていません。
 ` +
           "GitHub の Actions（Crawl）と、Worker の GH_TOKEN の期限を確認してください。",
