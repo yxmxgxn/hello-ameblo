@@ -12,6 +12,10 @@
  *   POST /api/crawl/entries    記事を取り込む(bigram化はここでやる。正規化の実装を1か所に保つため)
  *   POST /api/crawl/blog       ブログの進み具合を更新
  *   POST /api/crawl/purge      ブログ1つ分のデータを削除(除外リスト・削除依頼用)
+ *   GET  /api/crawl/checks     削除チェックの進み具合
+ *   POST /api/crawl/check      削除チェックの進み具合を更新
+ *   POST /api/crawl/range      ブログ内のID範囲にある取り込み済み記事のID
+ *   POST /api/crawl/delete     アメブロ側で消えた記事を削除
  *
  * それ以外は静的アセット(public/)へ。
  */
@@ -370,6 +374,51 @@ async function crawlEntries(request, env) {
   return json({ ok: true, inserted: Object.values(added).reduce((a, b) => a + b, 0), replaced: exists.size });
 }
 
+// 削除チェック: ブログ内のID範囲 [lo, hi) にある取り込み済み記事のID
+async function crawlRange(request, env) {
+  const { blog, lo, hi } = await request.json();
+  const where = ["blog = ?", "entry_id >= ?"];
+  const binds = [blog, Number(lo) || 0];
+  if (hi != null) { where.push("entry_id < ?"); binds.push(Number(hi)); }
+  const { results } = await env.DB
+    .prepare(`SELECT entry_id FROM entries WHERE ${where.join(" AND ")} LIMIT 1000`)
+    .bind(...binds).all();
+  return json({ ids: results.map((r) => String(r.entry_id)) });
+}
+
+async function crawlChecks(env) {
+  const { results } = await env.DB.prepare("SELECT * FROM checks").all();
+  return json({ checks: results });
+}
+
+async function crawlCheck(request, env) {
+  const c = await request.json();
+  await env.DB.prepare(
+    "INSERT INTO checks (blog, page, prev_min, cycles, updated_at) VALUES (?1, ?2, ?3, coalesce(?4, 0), ?5) " +
+    "ON CONFLICT(blog) DO UPDATE SET page = ?2, prev_min = ?3, cycles = cycles + coalesce(?4, 0), updated_at = ?5"
+  ).bind(c.blog, c.page, c.prev_min ?? null, c.cycle_done ? 1 : 0, now()).run();
+  return json({ ok: true });
+}
+
+// アメブロ側で消えた(または非公開になった)記事を消す
+async function crawlDelete(request, env) {
+  const { ids = [] } = await request.json();
+  const nums = ids.map(Number).filter(Number.isFinite).slice(0, 90);
+  if (!nums.length) return json({ ok: true, deleted: 0 });
+  const ph = nums.map(() => "?").join(",");
+  const { results } = await env.DB
+    .prepare(`SELECT blog, count(*) AS n FROM entries WHERE entry_id IN (${ph}) GROUP BY blog`).bind(...nums).all();
+  const stmts = [
+    env.DB.prepare(`DELETE FROM entry_fts WHERE rowid IN (${ph})`).bind(...nums),
+    env.DB.prepare(`DELETE FROM entries WHERE entry_id IN (${ph})`).bind(...nums),
+  ];
+  for (const r of results) {
+    stmts.push(env.DB.prepare("UPDATE blogs SET ingested = max(0, ingested - ?) WHERE blog = ?").bind(r.n, r.blog));
+  }
+  await env.DB.batch(stmts);
+  return json({ ok: true, deleted: results.reduce((a, r) => a + r.n, 0) });
+}
+
 // 除外リストに載ったブログのデータを消す(削除依頼への対応もこれ)
 async function crawlPurge(request, env) {
   const { blog } = await request.json();
@@ -379,6 +428,7 @@ async function crawlPurge(request, env) {
     env.DB.prepare("DELETE FROM entry_fts WHERE rowid IN (SELECT entry_id FROM entries WHERE blog = ?)").bind(blog),
     env.DB.prepare("DELETE FROM entries WHERE blog = ?").bind(blog),
     env.DB.prepare("DELETE FROM blogs WHERE blog = ?").bind(blog),
+    env.DB.prepare("DELETE FROM checks WHERE blog = ?").bind(blog),
   ]);
   return json({ ok: true, deleted: results[0].n });
 }
@@ -414,6 +464,10 @@ export default {
       if (route === "POST entries") return crawlEntries(request, env);
       if (route === "POST blog") return crawlBlog(request, env);
       if (route === "POST purge") return crawlPurge(request, env);
+      if (route === "GET checks") return crawlChecks(env);
+      if (route === "POST check") return crawlCheck(request, env);
+      if (route === "POST range") return crawlRange(request, env);
+      if (route === "POST delete") return crawlDelete(request, env);
       return new Response("Not found", { status: 404 });
     }
 

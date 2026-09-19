@@ -56,6 +56,7 @@ class Ameblo:
         self.delay = delay
         self.fetches = 0
         self._last = 0.0
+        self.last_status = 0  # 直前のリクエストのHTTPステータス(通信エラーは0)
 
     def get(self, url: str, tries: int = 3) -> str | None:
         for n in range(tries):
@@ -67,12 +68,15 @@ class Ameblo:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Encoding": "identity"})
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
+                    self.last_status = r.status
                     return r.read().decode("utf-8", "replace")
             except urllib.error.HTTPError as e:
+                self.last_status = e.code
                 if e.code in (404, 410):
                     return None
                 log("  ! HTTP", e.code, url)
             except Exception as e:  # noqa: BLE001 タイムアウト等は数回やり直す
+                self.last_status = 0
                 log("  !", type(e).__name__, url)
             time.sleep(5 * (n + 1))
         return None
@@ -118,6 +122,18 @@ class Ameblo:
             return None
         e = d.get("entryState", {}).get("entryMap", {}).get(str(entry_id)) or {}
         return e.get("entry_text") or ""
+
+    def entry_status(self, blog: str, entry_id) -> str:
+        """記事がまだ公開されているか。"alive" / "gone" / "unknown"(確かめられなかった)。
+        消すのは "gone" と確定したときだけ。通信エラー等は "unknown" で次回に回す。"""
+        page = self.get(f"https://ameblo.jp/{blog}/entry-{entry_id}.html")
+        if page is None:
+            return "gone" if self.last_status in (404, 410) else "unknown"
+        d = self.init_data(page)
+        e = (d or {}).get("entryState", {}).get("entryMap", {}).get(str(entry_id))
+        if not e:
+            return "unknown"
+        return "alive" if e.get("publish_flg") in (None, "open") else "gone"
 
 
 # 本文として扱わない埋め込み。ページ上は見えていても本人の文章ではなく、検索のノイズになる
@@ -274,6 +290,7 @@ class Crawler:
         self.max_fetch = max_fetch
         self.deadline = deadline
         self.inserted = 0
+        self.deleted = 0
 
     def budget_left(self) -> bool:
         return self.ab.fetches < self.max_fetch and time.time() < self.deadline
@@ -343,6 +360,38 @@ class Crawler:
                 "cursor_page": None if newest else 2,
             })
 
+    def check_page(self, blog: str, st: dict) -> bool:
+        """削除チェックを1ページ分。一覧を1ページ目から順に読み直し、
+        「前のページの最古ID 〜 このページの最古ID」にあるのに一覧に無い記事を、記事ページを見て確かめる。"""
+        page = int(st.get("page") or 1)
+        prev_min = st.get("prev_min")
+        got = self.ab.entry_list(blog, page)
+        if got is None:
+            return False
+        entries, paging, _ = got
+        if entries and page <= int(paging.get("max_page") or 0):
+            lo = min(int(e["entry_id"]) for e in entries)
+            nxt = {"page": page + 1, "prev_min": lo}
+        else:
+            lo = 0  # 最後のページの先: それより古い取り込み済み記事は全部一覧から消えたもの
+            nxt = {"page": 1, "prev_min": None, "cycle_done": True}
+        listed = {str(e["entry_id"]) for e in entries if e.get("publish_flg") in (None, "open")}
+        stored = self.api.call("POST", "/api/crawl/range", {"blog": blog, "lo": lo, "hi": prev_min})["ids"]
+        gone = []
+        for i in (x for x in stored if x not in listed):
+            if not self.budget_left():
+                return False  # 同じページを次回やり直す
+            if self.ab.entry_status(blog, i) == "gone":
+                gone.append(i)
+        for k in range(0, len(gone), 80):
+            r = self.api.call("POST", "/api/crawl/delete", {"ids": gone[k:k + 80]})
+            self.deleted += r.get("deleted", 0)
+        if gone:
+            log(f"  {blog}: 消えた記事 {len(gone)} 件を削除")
+        self.api.call("POST", "/api/crawl/check", {"blog": blog, **nxt})
+        st.update(nxt)
+        return not nxt.get("cycle_done")  # 一周したブログは今回はここまで
+
     def backfill_page(self, blog: str, st: dict) -> bool:
         """過去記事を1ページ分遡る。まだ続きがあれば True。"""
         page = int(st.get("cursor_page") or 1)
@@ -377,6 +426,8 @@ def main():
     ap.add_argument("--minutes", type=float, default=50, help="実行時間の上限(分)")
     ap.add_argument("--delay", type=float, default=1.0, help="アメブロへのリクエスト間隔(秒)")
     ap.add_argument("--no-backfill", action="store_true", help="新着だけ見る")
+    ap.add_argument("--check-pages", type=int, default=150,
+                    help="削除チェックで1回に読み直す一覧ページ数(1ページ20件)")
     a = ap.parse_args()
     if not a.api or not a.token:
         ap.error("--api と --token (または CRAWL_API / CRAWL_TOKEN) が必要")
@@ -409,6 +460,19 @@ def main():
                 break
             cr.update_new(b, state.setdefault(b, {"blog": b}))
 
+        # 削除チェック: 取り込み済みのブログを1ページずつ順番に
+        checks = {c["blog"]: c for c in api.call("GET", "/api/crawl/checks")["checks"]}
+        have = [b for b in blogs if int((state.get(b) or {}).get("ingested") or 0) > 0]
+        left = a.check_pages
+        while have and left > 0 and cr.budget_left():
+            for b in list(have):
+                if left <= 0 or not cr.budget_left():
+                    break
+                left -= 1
+                if not cr.check_page(b, checks.setdefault(b, {"blog": b})):
+                    have.remove(b)
+        log(f"削除チェック: {a.check_pages - left} ページ確認 / 削除 {cr.deleted} 件")
+
         if not a.no_backfill:
             state = {b["blog"]: b for b in api.call("GET", "/api/crawl/state")["blogs"]}
             pending = [b for b in blogs if b in state and not state[b].get("done")]
@@ -426,7 +490,7 @@ def main():
         # 無料枠の上限。失敗扱いにせず終わる(Paidにするか翌日になれば次の実行で続きから)
         log(f"D1の上限に当たったので今回はここまで: {e}")
 
-    log(f"終了: 取得 {ab.fetches} 回 / 新規取り込み {cr.inserted} 件")
+    log(f"終了: 取得 {ab.fetches} 回 / 新規取り込み {cr.inserted} 件 / 削除 {cr.deleted} 件")
 
 
 if __name__ == "__main__":

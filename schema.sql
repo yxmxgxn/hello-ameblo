@@ -59,3 +59,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entry_fts USING fts5(
   content = '',
   contentless_delete = 1
 );
+
+-- 削除チェックの進み具合(ブログ単位)。entrylist を1ページ目から順に読み直し、
+-- 前のページの最古ID(prev_min)〜このページの最古ID の範囲で「こちらにあるのに一覧に無い」記事を探す。
+-- 範囲をIDでつなぐので、途中で新着が増えてページがずれても確認漏れが出ない。
+CREATE TABLE IF NOT EXISTS checks (
+  blog       TEXT PRIMARY KEY,
+  page       INTEGER NOT NULL DEFAULT 1,
+  prev_min   INTEGER,
+  cycles     INTEGER NOT NULL DEFAULT 0,   -- 最後まで見終えた回数
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS entries_blog_id ON entries(blog, entry_id);
