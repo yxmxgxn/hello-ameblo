@@ -506,9 +506,36 @@ async function dispatchCrawl(env) {
   if (r.status !== 204) console.log("クロールの起動に失敗", r.status, (await r.text()).slice(0, 300));
 }
 
+// クロールが止まっていたら Discord に知らせる。
+// 起動されない・途中で落ち続ける、は GitHub の失敗メールでは気づけないので、D1 の最終更新時刻で見る。
+// 状態を持たずに済むよう、止まって3時間目と24時間目の1時間だけ送る(毎時送り続けない)。
+async function checkStalled(env) {
+  if (!env.DISCORD_WEBHOOK) return;
+  const row = await env.DB.prepare("SELECT max(updated_at) AS t FROM blogs").first();
+  if (!row || !row.t) return;
+  const hours = (Date.now() - Date.parse(row.t)) / 3600e3;
+  if (!((hours >= 3 && hours < 4) || (hours >= 24 && hours < 25))) return;
+  const jst = new Date(Date.parse(row.t) + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ");
+  await fetch(env.DISCORD_WEBHOOK, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      embeds: [{
+        title: "アメブロ検索: クロールが止まっています",
+        description: `最後に動いたのは ${jst}（日本時間）。${Math.floor(hours)}時間動いていません。
+` +
+          "GitHub の Actions（Crawl）と、Worker の GH_TOKEN の期限を確認してください。",
+        url: "https://github.com/yxmxgxn/hello-ameblo/actions",
+        color: 0x2d8c3c,
+      }],
+    }),
+  });
+}
+
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(dispatchCrawl(env));
+    ctx.waitUntil(checkStalled(env).catch((e) => console.log("停止チェック失敗", String(e))));
   },
 
   async fetch(request, env) {
