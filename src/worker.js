@@ -17,6 +17,7 @@
  *   POST /api/crawl/check      削除チェックの進み具合を更新
  *   POST /api/crawl/range      ブログ内のID範囲にある取り込み済み記事のID
  *   POST /api/crawl/delete     アメブロ側で消えた記事を削除
+ *   POST /api/crawl/notify-test  Discord 通知のテスト送信
  *
  * それ以外は静的アセット(public/)へ。
  */
@@ -509,6 +510,17 @@ async function dispatchCrawl(env) {
 // クロールが止まっていたら Discord に知らせる。
 // 起動されない・途中で落ち続ける、は GitHub の失敗メールでは気づけないので、D1 の最終更新時刻で見る。
 // 状態を持たずに済むよう、止まって3時間目と24時間目の1時間だけ送る(毎時送り続けない)。
+async function notifyDiscord(env, title, description) {
+  await fetch(env.DISCORD_WEBHOOK, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      username: "アメブロ検索",  // ウェブフックは karin と共用。送り主の表示だけ変える
+      embeds: [{ title, description, url: "https://github.com/yxmxgxn/hello-ameblo/actions", color: 0x2d8c3c }],
+    }),
+  });
+}
+
 async function checkStalled(env) {
   if (!env.DISCORD_WEBHOOK) return;
   const row = await env.DB.prepare("SELECT max(updated_at) AS t FROM blogs").first();
@@ -516,21 +528,10 @@ async function checkStalled(env) {
   const hours = (Date.now() - Date.parse(row.t)) / 3600e3;
   if (!((hours >= 3 && hours < 4) || (hours >= 24 && hours < 25))) return;
   const jst = new Date(Date.parse(row.t) + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ");
-  await fetch(env.DISCORD_WEBHOOK, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      username: "アメブロ検索",  // ウェブフックは karin と共用。送り主の表示だけ変える
-      embeds: [{
-        title: "クロールが止まっています",
-        description: `最後に動いたのは ${jst}（日本時間）。${Math.floor(hours)}時間動いていません。
+  await notifyDiscord(env, "クロールが止まっています",
+    `最後に動いたのは ${jst}（日本時間）。${Math.floor(hours)}時間動いていません。
 ` +
-          "GitHub の Actions（Crawl）と、Worker の GH_TOKEN の期限を確認してください。",
-        url: "https://github.com/yxmxgxn/hello-ameblo/actions",
-        color: 0x2d8c3c,
-      }],
-    }),
-  });
+    "GitHub の Actions（Crawl）と、Worker の GH_TOKEN の期限を確認してください。");
 }
 
 export default {
@@ -560,6 +561,11 @@ export default {
       if (route === "POST check") return crawlCheck(request, env);
       if (route === "POST range") return crawlRange(request, env);
       if (route === "POST delete") return crawlDelete(request, env);
+      if (route === "POST notify-test") {
+        if (!env.DISCORD_WEBHOOK) return json({ error: "DISCORD_WEBHOOK 未設定" }, 400);
+        await notifyDiscord(env, "通知のテスト", "クロールが止まったときは、ここにこの形で届きます。");
+        return json({ ok: true });
+      }
       return new Response("Not found", { status: 404 });
     }
 
