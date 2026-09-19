@@ -29,7 +29,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  /* アメブロ本文と同じ指定(Windowsはメイリオ)。検索結果から記事に飛んでも字の雰囲気が変わらない。
+     system-ui を先頭にすると Windows で細い Yu Gothic UI になるので使わない */
+  font-family: Meiryo, "Yu Gothic Medium", -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
   line-height: 1.7;
 }
 main, .site-head, .site-foot { max-width: 760px; margin: 0 auto; padding: 0 16px; }
