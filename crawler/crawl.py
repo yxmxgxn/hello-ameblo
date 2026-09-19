@@ -282,13 +282,16 @@ class Crawler:
         """一覧の記事(メタ情報)の本文を取って送る。途中で予算切れなら False。"""
         ids = [str(e["entry_id"]) for e in metas]
         known = set(self.api.call("POST", "/api/crawl/known", {"ids": ids})["known"]) if ids else set()
-        todo = [e for e in metas if str(e["entry_id"]) not in known]
+        # アメンバー限定などの非公開記事は取り込まない(読みたければアメンバーになれば読める)
+        todo = [e for e in metas if str(e["entry_id"]) not in known and e.get("publish_flg") in (None, "open")]
         batch = []
         for e in todo:
             if not self.budget_left():
                 self.flush(batch)
                 return False
             raw = self.ab.entry_body(blog, e["entry_id"])
+            if raw is None:
+                continue  # 記事ページが消えている
             body = html_to_text(raw or "")
             batch.append({
                 "entry_id": str(e["entry_id"]),
@@ -298,8 +301,7 @@ class Crawler:
                 "title": e.get("entry_title") or "",
                 "published": e.get("entry_created_datetime") or "",
                 "body": body,
-                # アメンバー限定。本文が空でも公開記事なら画像・埋め込みだけの記事
-                "restricted": e.get("publish_flg") not in (None, "open") or raw is None,
+                "restricted": False,
             })
             if len(batch) >= POST_BATCH:
                 self.flush(batch)

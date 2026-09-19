@@ -37,7 +37,7 @@
       li.append(p);
     }
     if (!r.snippets.length) {
-      li.append(el("p", { class: "locked" }, r.restricted ? "アメンバー限定記事" : "本文なし（画像・埋め込みのみ）"));
+      li.append(el("p", { class: "locked" }, "本文なし（画像・埋め込みのみ）"));
     }
     return li;
   }
