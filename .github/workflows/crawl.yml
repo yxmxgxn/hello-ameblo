@@ -1,0 +1,47 @@
+name: Crawl
+
+on:
+  schedule:
+    - cron: "17 * * * *"   # 毎時。過去記事を遡り終えたら新着チェックだけの軽い実行になる
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 実行時間の上限(分)
+        default: "50"
+      blogs:
+        description: このブログだけ(カンマ区切り。空なら全部)
+        default: ""
+
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+permissions:
+  actions: write   # 下の keepalive 用
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Crawl
+        env:
+          CRAWL_API: ${{ vars.CRAWL_API }}
+          CRAWL_TOKEN: ${{ secrets.CRAWL_TOKEN }}
+        run: |
+          python crawler/crawl.py \
+            --minutes "${{ inputs.minutes || '50' }}" \
+            ${{ inputs.blogs && format('--blogs "{0}"', inputs.blogs) || '' }}
+
+      # 公開リポジトリの定期実行は、リポジトリに60日動きが無いと GitHub に止められる。
+      # このリポジトリはクロールしてもコミットが発生しないので、自分で有効化し直して延命する。
+      - name: Keepalive
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/crawl.yml/enable"

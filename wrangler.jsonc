@@ -1,0 +1,19 @@
+{
+  "name": "hello-ameblo",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // /api/* はアセットが無いので、ブラウザで直接開いても Worker が動くよう明示する
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hello-ameblo",
+      // ダッシュボード → ストレージとデータベース → D1 → hello-ameblo (APAC)
+      "database_id": "92c4802b-5049-46bb-b464-a9b51fb7138b"
+    }
+  ]
+}

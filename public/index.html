@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アメブロ検索</title>
+<meta name="description" content="ハロー！プロジェクトのメンバーのアメブロを本文から検索。メンバーで絞り込み、一致した箇所の前後を見て元記事へ。">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-head">
+  <h1><a href="/">アメブロ検索</a></h1>
+  <p class="lead">ハロプロメンバーのアメブロを、本文から探せます。</p>
+</header>
+
+<main>
+  <form id="f" class="search" role="search" autocomplete="off">
+    <div class="q-row">
+      <input id="q" name="q" type="search" placeholder="例: りんご飴" aria-label="検索語" enterkeyhint="search">
+      <button type="submit">検索</button>
+    </div>
+    <div class="opts">
+      <label>メンバー
+        <select id="m" name="m"><option value="">全員</option></select>
+      </label>
+      <label>並び
+        <select id="order" name="order">
+          <option value="">新しい順</option>
+          <option value="old">古い順</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint">空白で区切ると「全部含む」記事を探します。メンバーだけ選んで検索すると、その人の記事を一覧できます。</p>
+  </form>
+
+  <p id="status" class="status" aria-live="polite"></p>
+  <ol id="results" class="results"></ol>
+  <button id="more" class="more" type="button" hidden>もっと見る</button>
+</main>
+
+<footer class="site-foot">
+  <p id="stats"></p>
+  <p>本文はこのサイトには表示しません。記事は Ameba ブログ（ameblo.jp）でお読みください。</p>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
