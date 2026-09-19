@@ -2,7 +2,7 @@
  * アメブロ検索 Worker (Static Assets 併用)
  *
  * 公開API
- *   GET /api/search?q=&m=&order=&cursor=  本文・タイトルの全文検索。前後数十字だけ返し、本文全体は返さない
+ *   GET /api/search?q=&m=&b=&order=&cursor=  本文・タイトルの全文検索。前後数十字だけ返し、本文全体は返さない
  *   GET /api/members                      絞り込み用のメンバー一覧と収録状況
  *
  * クローラ用API (Authorization: Bearer <CRAWL_TOKEN>。未設定なら存在しないことにする)
@@ -11,6 +11,7 @@
  *   POST /api/crawl/known      渡したIDのうち取り込み済みのものを返す
  *   POST /api/crawl/entries    記事を取り込む(bigram化はここでやる。正規化の実装を1か所に保つため)
  *   POST /api/crawl/blog       ブログの進み具合を更新
+ *   POST /api/crawl/purge      ブログ1つ分のデータを削除(除外リスト・削除依頼用)
  *
  * それ以外は静的アセット(public/)へ。
  */
@@ -157,6 +158,7 @@ const entryUrl = (blog, id) => `https://ameblo.jp/${blog}/entry-${id}.html`;
 async function handleSearch(url, env) {
   const q = url.searchParams.get("q") || "";
   const m = parseInt(url.searchParams.get("m") || "", 10);
+  const blog = (url.searchParams.get("b") || "").slice(0, 100);
   const asc = url.searchParams.get("order") === "old";
   const cursor = parseInt(url.searchParams.get("cursor") || "", 10);
 
@@ -176,6 +178,7 @@ async function handleSearch(url, env) {
     where.push("entry_fts MATCH ?");
     binds.push(built.match);
     if (Number.isFinite(m)) { where.push("e.member_no = ?"); binds.push(m); }
+    if (blog) { where.push("e.blog = ?"); binds.push(blog); }
     if (Number.isFinite(cursor)) { where.push(`entry_fts.rowid ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entry_fts JOIN entries e ON e.entry_id = entry_fts.rowid ${joins} ` +
       `WHERE ${where.join(" AND ")} ORDER BY entry_fts.rowid ${asc ? "ASC" : "DESC"} LIMIT ?`;
@@ -183,6 +186,7 @@ async function handleSearch(url, env) {
     // 語なし・メンバー指定だけ: その人の記事を新しい順に並べる
     where.push("e.member_no = ?");
     binds.push(m);
+    if (blog) { where.push("e.blog = ?"); binds.push(blog); }
     if (Number.isFinite(cursor)) { where.push(`e.entry_id ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entries e ${joins} WHERE ${where.join(" AND ")} ` +
       `ORDER BY e.entry_id ${asc ? "ASC" : "DESC"} LIMIT ?`;
@@ -204,7 +208,7 @@ async function handleSearch(url, env) {
     date: (r.published || "").slice(0, 16).replace("T", " "),
     member: r.member || null,
     blog: r.blog,
-    blog_title: r.blog_title || r.blog,
+    blog_title: shortTitle(r.blog_title) || r.blog,
     theme: r.theme_name || null,
     restricted: !!r.restricted,
     snippets: snippets(r.body || "", built ? built.terms : []),
@@ -216,21 +220,33 @@ async function handleSearch(url, env) {
   }, 200, "public, max-age=300");
 }
 
+// 「スマイレージ 福田花音オフィシャルブログ「アイドル革命 いちごのツブログ season2」」→「アイドル革命 いちごのツブログ season2」
+function shortTitle(t) {
+  if (!t) return "";
+  const q = t.match(/「(.+)」/);
+  if (q) return q[1].trim();
+  return t.replace(/Powered by Ameba/i, "").replace(/オフィシャルブログ|公式ブログ|official\s*blog/gi, "").trim() || t;
+}
+
 async function handleMembers(env) {
-  const [{ results: members }, { results: stats }] = await env.DB.batch([
+  const [{ results: rows }, { results: stats }] = await env.DB.batch([
     env.DB.prepare(
-      "SELECT mb.member_no, mb.name, group_concat(DISTINCT t.blog) AS blogs FROM members mb " +
-      "JOIN targets t ON t.member_no = mb.member_no GROUP BY mb.member_no ORDER BY mb.member_no"
+      "SELECT DISTINCT mb.member_no, mb.name, t.blog, b.title, b.newest_id FROM members mb " +
+      "JOIN targets t ON t.member_no = mb.member_no LEFT JOIN blogs b ON b.blog = t.blog " +
+      "ORDER BY mb.member_no, b.newest_id DESC"
     ),
     env.DB.prepare(
       "SELECT count(*) AS blogs, sum(ingested) AS ingested, sum(total) AS total, " +
       "sum(done) AS done, max(updated_at) AS updated_at FROM blogs"
     ),
   ]);
-  return json({
-    members: members.map((r) => ({ no: r.member_no, name: r.name, blogs: (r.blogs || "").split(",") })),
-    stats: stats[0] || {},
-  }, 200, "public, max-age=300");
+  const members = [];
+  for (const r of rows) {
+    let mb = members[members.length - 1];
+    if (!mb || mb.no !== r.member_no) members.push(mb = { no: r.member_no, name: r.name, blogs: [] });
+    mb.blogs.push({ id: r.blog, title: shortTitle(r.title) || r.blog });
+  }
+  return json({ members, stats: stats[0] || {} }, 200, "public, max-age=300");
 }
 
 /* ============================ クローラ用API ============================ */
@@ -354,6 +370,19 @@ async function crawlEntries(request, env) {
   return json({ ok: true, inserted: Object.values(added).reduce((a, b) => a + b, 0), replaced: exists.size });
 }
 
+// 除外リストに載ったブログのデータを消す(削除依頼への対応もこれ)
+async function crawlPurge(request, env) {
+  const { blog } = await request.json();
+  if (!blog) return json({ error: "blog" }, 400);
+  const { results } = await env.DB.prepare("SELECT count(*) AS n FROM entries WHERE blog = ?").bind(blog).all();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM entry_fts WHERE rowid IN (SELECT entry_id FROM entries WHERE blog = ?)").bind(blog),
+    env.DB.prepare("DELETE FROM entries WHERE blog = ?").bind(blog),
+    env.DB.prepare("DELETE FROM blogs WHERE blog = ?").bind(blog),
+  ]);
+  return json({ ok: true, deleted: results[0].n });
+}
+
 async function crawlBlog(request, env) {
   const b = await request.json();
   if (!b.blog) return json({ error: "blog" }, 400);
@@ -384,6 +413,7 @@ export default {
       if (route === "POST known") return crawlKnown(request, env);
       if (route === "POST entries") return crawlEntries(request, env);
       if (route === "POST blog") return crawlBlog(request, env);
+      if (route === "POST purge") return crawlPurge(request, env);
       return new Response("Not found", { status: 404 });
     }
 

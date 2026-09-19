@@ -36,7 +36,9 @@
       if (s.post) p.append(el("span", { class: "ell" }, "…"));
       li.append(p);
     }
-    if (r.restricted && !r.snippets.length) li.append(el("p", { class: "locked" }, "本文なし（アメンバー限定など）"));
+    if (!r.snippets.length) {
+      li.append(el("p", { class: "locked" }, r.restricted ? "アメンバー限定記事" : "本文なし（画像・埋め込みのみ）"));
+    }
     return li;
   }
 
@@ -47,6 +49,7 @@
     const params = new URLSearchParams();
     if (current.q) params.set("q", current.q);
     if (current.m) params.set("m", current.m);
+    if (current.b) params.set("b", current.b);
     if (current.order) params.set("order", current.order);
     if (append && cursor) params.set("cursor", cursor);
     if (!append) { list.textContent = ""; statusEl.textContent = "検索中…"; }
@@ -72,12 +75,15 @@
   }
 
   function search(pushHistory) {
-    current = { q: qEl.value.trim(), m: mEl.value, order: orderEl.value };
+    // メンバーの選択肢は「番号」か「番号@ブログID」(ブログが複数ある人のブログ別)
+    const [m, b] = mEl.value.split("@");
+    current = { q: qEl.value.trim(), m: m || "", b: b || "", order: orderEl.value };
     cursor = null;
     const u = new URL(location.href);
     u.search = "";
     if (current.q) u.searchParams.set("q", current.q);
     if (current.m) u.searchParams.set("m", current.m);
+    if (current.b) u.searchParams.set("b", current.b);
     if (current.order) u.searchParams.set("order", current.order);
     if (pushHistory) history.pushState(null, "", u);
     document.title = current.q ? `${current.q} - アメブロ検索` : "アメブロ検索";
@@ -93,7 +99,9 @@
   function fromUrl() {
     const p = new URLSearchParams(location.search);
     qEl.value = p.get("q") || "";
-    mEl.value = p.get("m") || "";
+    const m = p.get("m") || "", b = p.get("b") || "";
+    mEl.value = b ? `${m}@${b}` : m;
+    if (mEl.value !== (b ? `${m}@${b}` : m)) mEl.value = m;
     orderEl.value = p.get("order") || "";
     search(false);
   }
@@ -105,7 +113,17 @@
   window.addEventListener("popstate", fromUrl);
 
   fetch("/api/members").then((r) => r.json()).then((d) => {
-    for (const m of d.members) mEl.append(el("option", { value: String(m.no) }, m.name));
+    for (const m of d.members) {
+      if (m.blogs.length < 2) {
+        mEl.append(el("option", { value: String(m.no) }, m.name));
+        continue;
+      }
+      // ブログが複数ある人は、全部まとめて＋ブログごと
+      const g = el("optgroup", { label: m.name });
+      g.append(el("option", { value: String(m.no) }, `${m.name}（すべて）`));
+      for (const b of m.blogs) g.append(el("option", { value: `${m.no}@${b.id}` }, `${m.name}（${b.title}）`));
+      mEl.append(g);
+    }
     const s = d.stats || {};
     if (s.ingested) {
       $("stats").textContent = `収録 ${fmt(s.ingested)} 記事 / ${fmt(s.blogs)} ブログ` +

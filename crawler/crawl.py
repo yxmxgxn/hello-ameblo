@@ -38,7 +38,7 @@ ACCOUNTS_CSV = (
     "2PACX-1vSLHCVWWxyVI5GS9SSohSNYL4U-uY4jekuMXbaKYXYjWrSZlgSxGV0BFvnCWRrd-A4Z5sqkoRwRyDqD/pub"
     "?gid=1522035537&single=true&output=csv"
 )
-UA = "Mozilla/5.0 (compatible; hello-ameblo-crawler/0.1)"
+UA = "Mozilla/5.0 (compatible; hello-ameblo-crawler/0.1; +https://hello-ameblo.yxmxgxn.workers.dev/)"
 PER_PAGE = 20
 POST_BATCH = 20
 
@@ -107,8 +107,9 @@ class Ameblo:
         entries = [emap[str(i)] for i in order if str(i) in emap] or list(emap.values())
         entries.sort(key=lambda e: int(e["entry_id"]), reverse=True)
         title = ""
-        for b in d.get("bloggerState", {}).get("bloggerMap", {}).values():
-            title = (b.get("official") or {}).get("upper_text") or (b.get("profile") or {}).get("nickname") or title
+        for b in d.get("bloggerState", {}).get("blogMap", {}).values():
+            title = b.get("blog_title") or title
+        title = re.sub(r"\s*Powered by Ameba\s*$", "", title).strip()
         return entries, paging, title
 
     def entry_body(self, blog: str, entry_id) -> str | None:
@@ -253,6 +254,17 @@ def load_targets(src: str):
     )
 
 
+EXCLUDE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exclude.txt")
+
+
+def load_exclude() -> set[str]:
+    """exclude.txt のブログIDは巡回しない(取り込み済みの分も削除する)。# 以降はコメント。"""
+    if not os.path.exists(EXCLUDE_FILE):
+        return set()
+    with open(EXCLUDE_FILE, encoding="utf-8") as f:
+        return {ln.split("#", 1)[0].strip() for ln in f} - {""}
+
+
 # ============================ 巡回 ============================
 
 class Crawler:
@@ -286,7 +298,8 @@ class Crawler:
                 "title": e.get("entry_title") or "",
                 "published": e.get("entry_created_datetime") or "",
                 "body": body,
-                "restricted": not body,  # アメンバー限定・削除済みなど
+                # アメンバー限定。本文が空でも公開記事なら画像・埋め込みだけの記事
+                "restricted": e.get("publish_flg") not in (None, "open") or raw is None,
             })
             if len(batch) >= POST_BATCH:
                 self.flush(batch)
@@ -371,6 +384,10 @@ def main():
     cr = Crawler(api, ab, a.max_fetch, time.time() + a.minutes * 60)
 
     members, targets = load_targets(a.accounts)
+    excluded = load_exclude()
+    targets = [t for t in targets if t["blog"] not in excluded]
+    used = {t["member_no"] for t in targets}
+    members = [m for m in members if m["member_no"] in used]
     only = set(a.blogs.split(",")) if a.blogs else None
     r = api.call("POST", "/api/crawl/targets", {"members": members, "targets": targets})
     log(f"対象: メンバー{r['members']}人 / 紐づけ{r['targets']}件 (付け直し {r['remapped']})")
@@ -379,6 +396,9 @@ def main():
     if only:
         blogs = [b for b in blogs if b in only]
     state = {b["blog"]: b for b in api.call("GET", "/api/crawl/state")["blogs"]}
+    for b in sorted(excluded & set(state)):
+        r = api.call("POST", "/api/crawl/purge", {"blog": b})
+        log(f"除外: {b} のデータを削除 ({r.get('deleted', 0)} 件)")
 
     try:
         log(f"新着チェック: {len(blogs)} ブログ")
