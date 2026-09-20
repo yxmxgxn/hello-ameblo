@@ -513,6 +513,21 @@ async function crawlBlog(request, env) {
 
 /* ============================ ルーティング ============================ */
 
+// 同じURLの結果は数分キャッシュする(誰が見ても同じ内容なので共有して問題ない)。
+// D1 を引く回数が減り、同じ検索を繰り返し叩かれても負荷が増えない。
+async function cached(request, ctx, build) {
+  const cache = caches.default;
+  const hit = await cache.match(request);
+  if (hit) {
+    const r = new Response(hit.body, hit);
+    r.headers.set("x-cache", "hit");   // キャッシュが効いているか外から確かめるための印
+    return r;
+  }
+  const res = await build();
+  if (res.status === 200) ctx.waitUntil(cache.put(request, res.clone()));
+  return res;
+}
+
 /* ============================ 定期実行 ============================ */
 
 // 毎時、GitHub Actions のクロールを起動する。
@@ -572,13 +587,20 @@ export default {
     ctx.waitUntil(checkStalled(env).catch((e) => console.log("停止チェック失敗", String(e))));
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname;
 
-    if (p === "/api/search" && request.method === "GET") return handleSearch(url, env);
-    if (p === "/api/members" && request.method === "GET") return handleMembers(env);
-    if (p === "/api/calendar" && request.method === "GET") return handleCalendar(url, env);
+    // 公開API: 同一IPからの叩きすぎを止める(workers.dev では WAF が使えないので Worker 側で)
+    if (p.startsWith("/api/") && !p.startsWith("/api/crawl/") && env.RL) {
+      const ip = request.headers.get("cf-connecting-ip") || "unknown";
+      const { success } = await env.RL.limit({ key: ip });
+      if (!success) return json({ error: "rate_limited" }, 429, "no-store");
+    }
+
+    if (p === "/api/search" && request.method === "GET") return cached(request, ctx, () => handleSearch(url, env));
+    if (p === "/api/members" && request.method === "GET") return cached(request, ctx, () => handleMembers(env));
+    if (p === "/api/calendar" && request.method === "GET") return cached(request, ctx, () => handleCalendar(url, env));
 
     if (p.startsWith("/api/crawl/")) {
       if (!authorized(request, env)) return new Response("Not found", { status: 404 });

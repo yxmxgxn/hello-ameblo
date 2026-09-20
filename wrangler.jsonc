@@ -12,6 +12,12 @@
   "triggers": {
     "crons": ["7 * * * *"]
   },
+  // 1分あたりの同一IPからのAPI呼び出し上限(Workers のレート制限バインディング)
+  "unsafe": {
+    "bindings": [
+      { "name": "RL", "type": "ratelimit", "namespace_id": "1001", "simple": { "limit": 120, "period": 60 } }
+    ]
+  },
   "d1_databases": [
     {
       "binding": "DB",
