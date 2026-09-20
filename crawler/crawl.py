@@ -241,8 +241,17 @@ class Api:
 
 def load_targets(src: str):
     if re.match(r"https?://", src):
-        with urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": UA}), timeout=60) as r:
-            text = r.read().decode("utf-8-sig")
+        text = None
+        for n in range(4):   # Google 側が一時的に落ちることがあるので数回やり直す
+            try:
+                with urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": UA}), timeout=60) as r:
+                    text = r.read().decode("utf-8-sig")
+                break
+            except Exception as e:  # noqa: BLE001
+                log("  ! スプシ取得失敗", type(e).__name__, e)
+                time.sleep(5 * (n + 1))
+        if text is None:
+            raise RuntimeError("対応表(スプシ)が取得できなかった")
     else:
         with open(src, encoding="utf-8-sig") as f:
             text = f.read()
