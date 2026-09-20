@@ -582,6 +582,24 @@ export default {
 
     if (p.startsWith("/api/crawl/")) {
       if (!authorized(request, env)) return new Response("Not found", { status: 404 });
+      try {
+        return await crawlRoute(request, env, p);
+      } catch (e) {
+        // 例外のままだと Cloudflare の汎用エラー(1101)になって原因が分からないので中身を返す
+        const msg = String((e && e.message) || e);
+        if (/limit|exceed|quota|full|too big|SQLITE_FULL/i.test(msg)) return json({ error: "db_limit", message: msg }, 507);
+        return json({ error: "crawl", message: msg }, 500);
+      }
+    }
+
+    if (p.startsWith("/api/")) return new Response("Not found", { status: 404 });
+    return env.ASSETS.fetch(request);
+  },
+};
+
+async function crawlRoute(request, env, p) {
+  {
+    {
       const route = `${request.method} ${p.slice("/api/crawl/".length)}`;
       if (route === "GET state") return crawlState(env);
       if (route === "POST targets") return crawlTargets(request, env);
@@ -600,8 +618,5 @@ export default {
       }
       return new Response("Not found", { status: 404 });
     }
-
-    if (p.startsWith("/api/")) return new Response("Not found", { status: 404 });
-    return env.ASSETS.fetch(request);
-  },
-};
+  }
+}
