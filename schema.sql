@@ -75,3 +75,16 @@ CREATE INDEX IF NOT EXISTS entries_blog_id ON entries(blog, entry_id);
 -- 日付で見る(カレンダー)用。published は "2016-03-05T21:00:00.000+09:00"(日本時間)の文字列なので前方一致で月・日を引ける
 CREATE INDEX IF NOT EXISTS entries_member_pub ON entries(member_no, published);
 CREATE INDEX IF NOT EXISTS entries_pub ON entries(published);
+
+-- グループでの絞り込み用。SNSスプシの GroupNo/SubGroup 行(番号)と affiliation 行(現役判定)から作る。
+CREATE TABLE IF NOT EXISTS groups (
+  group_no INTEGER PRIMARY KEY,
+  name     TEXT NOT NULL
+);
+
+-- member_meta.groups は ",11,12," の形(LIKE で引くため前後にもカンマを付ける)
+CREATE TABLE IF NOT EXISTS member_meta (
+  member_no INTEGER PRIMARY KEY,
+  groups    TEXT,
+  active    INTEGER NOT NULL DEFAULT 0   -- ハロプロ現役なら1
+);

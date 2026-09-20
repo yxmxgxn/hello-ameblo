@@ -2,7 +2,7 @@
  * アメブロ検索 Worker (Static Assets 併用)
  *
  * 公開API
- *   GET /api/search?q=&m=&b=&d=&order=&cursor=  本文・タイトルの全文検索。前後数十字だけ返し、本文全体は返さない
+ *   GET /api/search?q=&m=&b=&g=&act=&d=&order=&cursor=  本文・タイトルの全文検索。前後数十字だけ返し、本文全体は返さない
  *   GET /api/members                      絞り込み用のメンバー一覧と収録状況
  *   GET /api/calendar?m=&b=&ym=           日付で見る用の月別・日別の件数
  *
@@ -168,18 +168,26 @@ async function handleSearch(url, env) {
   // 期間: "2016" / "2016-03" / "2016-03-05"。published の前方一致(〜 d+"~" 未満)で引く
   const dRaw = url.searchParams.get("d") || "";
   const d = /^\d{4}(-\d{2}(-\d{2})?)?$/.test(dRaw) ? dRaw : "";
+  const g = parseInt(url.searchParams.get("g") || "", 10);
+  const act = url.searchParams.get("act") === "1";
   const asc = url.searchParams.get("order") === "old";
   const cursor = parseInt(url.searchParams.get("cursor") || "", 10);
 
   const built = q.trim() ? buildMatch(q) : null;
   if (q.trim() && !built) return json({ error: "short", results: [], next: null });
-  if (!built && !Number.isFinite(m) && !d) return json({ results: [], next: null });
+  if (!built && !Number.isFinite(m) && !d && !Number.isFinite(g) && !act) return json({ results: [], next: null });
 
-  const cols = "e.entry_id, e.blog, e.title, e.published, e.theme_name, e.body, e.restricted, " +
+  const cols = "e.entry_id, e.blog, e.title, e.published, e.theme_id, e.theme_name, e.body, e.restricted, " +
     "mb.name AS member, b.title AS blog_title";
-  const joins = "LEFT JOIN members mb ON mb.member_no = e.member_no LEFT JOIN blogs b ON b.blog = e.blog";
+  const joins = "LEFT JOIN members mb ON mb.member_no = e.member_no LEFT JOIN blogs b ON b.blog = e.blog" +
+    ((Number.isFinite(g) || act) ? " JOIN member_meta mm ON mm.member_no = e.member_no" : "");
   const where = [];
   const binds = [];
+  // グループ・現役の絞り込み(メンバーを選んでいない時に効く)
+  const extra = () => {
+    if (Number.isFinite(g)) { where.push("mm.groups LIKE ?"); binds.push(`%,${g},%`); }
+    if (act) where.push("mm.active = 1");
+  };
   let sql;
 
   if (built) {
@@ -188,6 +196,7 @@ async function handleSearch(url, env) {
     binds.push(built.match);
     if (Number.isFinite(m)) { where.push("e.member_no = ?"); binds.push(m); }
     if (blog) { where.push("e.blog = ?"); binds.push(blog); }
+    extra();
     if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
     if (Number.isFinite(cursor)) { where.push(`entry_fts.rowid ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entry_fts JOIN entries e ON e.entry_id = entry_fts.rowid ${joins} ` +
@@ -196,6 +205,7 @@ async function handleSearch(url, env) {
     // 語なし: メンバー・期間で絞った記事を並べる(カレンダーから日を選んだ時もこれ)
     if (Number.isFinite(m)) { where.push("e.member_no = ?"); binds.push(m); }
     if (blog) { where.push("e.blog = ?"); binds.push(blog); }
+    extra();
     if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
     if (Number.isFinite(cursor)) { where.push(`e.entry_id ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entries e ${joins} WHERE ${where.join(" AND ")} ` +
@@ -220,6 +230,8 @@ async function handleSearch(url, env) {
     blog: r.blog,
     blog_title: shortTitle(r.blog_title) || r.blog,
     theme: r.theme_name || null,
+    theme_url: r.theme_id ? `https://ameblo.jp/${r.blog}/theme-${r.theme_id}.html` : null,
+    blog_url: `https://ameblo.jp/${r.blog}/`,
     restricted: !!r.restricted,
     snippets: snippets(r.body || "", built ? built.terms : []),
   }));
@@ -267,24 +279,38 @@ function shortTitle(t) {
 }
 
 async function handleMembers(env) {
-  const [{ results: rows }, { results: stats }] = await env.DB.batch([
+  const [{ results: rows }, { results: stats }, { results: groups }] = await env.DB.batch([
     env.DB.prepare(
-      "SELECT DISTINCT mb.member_no, mb.name, t.blog, b.title, b.newest_id FROM members mb " +
+      "SELECT DISTINCT mb.member_no, mb.name, mm.groups, mm.active, t.blog, b.title, b.newest_id FROM members mb " +
       "JOIN targets t ON t.member_no = mb.member_no LEFT JOIN blogs b ON b.blog = t.blog " +
+      "LEFT JOIN member_meta mm ON mm.member_no = mb.member_no " +
       "ORDER BY mb.member_no, b.newest_id DESC"
     ),
     env.DB.prepare(
       "SELECT count(*) AS blogs, sum(ingested) AS ingested, sum(total) AS total, " +
       "sum(done) AS done, max(updated_at) AS updated_at FROM blogs"
     ),
+    env.DB.prepare("SELECT group_no, name FROM groups ORDER BY group_no"),
   ]);
   const members = [];
   for (const r of rows) {
     let mb = members[members.length - 1];
-    if (!mb || mb.no !== r.member_no) members.push(mb = { no: r.member_no, name: r.name, blogs: [] });
+    if (!mb || mb.no !== r.member_no) {
+      members.push(mb = {
+        no: r.member_no,
+        name: r.name,
+        active: r.active ? 1 : 0,
+        groups: (r.groups || "").split(",").filter(Boolean).map(Number),
+        blogs: [],
+      });
+    }
     mb.blogs.push({ id: r.blog, title: shortTitle(r.title) || r.blog });
   }
-  return json({ members, stats: stats[0] || {} }, 200, "public, max-age=300");
+  return json({
+    members,
+    groups: groups.map((r) => ({ no: r.group_no, name: r.name })),
+    stats: stats[0] || {},
+  }, 200, "public, max-age=300");
 }
 
 /* ============================ クローラ用API ============================ */
@@ -310,7 +336,7 @@ async function crawlState(env) {
 // targets を丸ごと差し替える。紐づけが変わった所だけ entries.member_no を付け直す
 // (全件UPDATEは毎回数十万行読むことになるので、差分だけ)。
 async function crawlTargets(request, env) {
-  const { members = [], targets = [] } = await request.json();
+  const { members = [], groups = [], targets = [] } = await request.json();
   const key = (t) => `${t.blog}\t${t.theme_id || ""}`;
 
   const { results: old } = await env.DB.prepare("SELECT blog, theme_id, member_no FROM targets").all();
@@ -318,8 +344,14 @@ async function crawlTargets(request, env) {
   const after = new Map(targets.map((t) => [key(t), t.member_no ?? null]));
 
   const stmts = [env.DB.prepare("DELETE FROM members"), env.DB.prepare("DELETE FROM targets")];
+  stmts.push(env.DB.prepare("DELETE FROM member_meta"), env.DB.prepare("DELETE FROM groups"));
   for (const mb of members) {
     stmts.push(env.DB.prepare("INSERT OR REPLACE INTO members (member_no, name) VALUES (?, ?)").bind(mb.member_no, mb.name));
+    stmts.push(env.DB.prepare("INSERT OR REPLACE INTO member_meta (member_no, groups, active) VALUES (?, ?, ?)")
+      .bind(mb.member_no, mb.groups || "", mb.active ? 1 : 0));
+  }
+  for (const g of groups) {
+    stmts.push(env.DB.prepare("INSERT OR REPLACE INTO groups (group_no, name) VALUES (?, ?)").bind(g.group_no, g.name));
   }
   for (const t of targets) {
     stmts.push(env.DB.prepare("INSERT OR REPLACE INTO targets (blog, theme_id, member_no) VALUES (?, ?, ?)")

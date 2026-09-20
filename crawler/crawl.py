@@ -239,29 +239,60 @@ class Api:
 
 # ============================ 対象の読み込み ============================
 
-def load_targets(src: str):
-    if re.match(r"https?://", src):
-        text = None
-        for n in range(4):   # Google 側が一時的に落ちることがあるので数回やり直す
-            try:
-                with urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": UA}), timeout=60) as r:
-                    text = r.read().decode("utf-8-sig")
-                break
-            except Exception as e:  # noqa: BLE001
-                log("  ! スプシ取得失敗", type(e).__name__, e)
-                time.sleep(5 * (n + 1))
-        if text is None:
-            raise RuntimeError("対応表(スプシ)が取得できなかった")
-    else:
+# グループ番号 → 表示名(SNSスプシの縦持ち GroupNo/SubGroup の値。karin の generate_sns.py と同じ)
+GROUPNO = {
+    1: "平家みちよ", 2: "モーニング娘。", 3: "太陽とシスコムーン", 4: "ココナッツ娘。",
+    5: "カントリー娘。", 6: "メロン記念日", 7: "Berryz工房", 8: "松浦亜弥", 9: "℃-ute",
+    10: "真野恵里菜", 11: "アンジュルム", 12: "Juice=Juice", 13: "カントリー・ガールズ",
+    14: "こぶしファクトリー", 15: "つばきファクトリー", 16: "BEYOOOOONDS",
+    17: "OCHA NORMA", 18: "ロージークロニクル",
+}
+# 現役グループ(affiliation の値)。これ以外(jproom/free/retirement等)は現役ではない
+ACTIVE_AFFILIATIONS = {
+    "morningmusume", "angerme", "juicejuice", "tsubakifactory",
+    "beyooooonds", "ochanorma", "rosychronicle",
+}
+
+
+def _read_csv(src: str) -> str:
+    if not re.match(r"https?://", src):
         with open(src, encoding="utf-8-sig") as f:
-            text = f.read()
-    rows = list(csv.reader(io.StringIO(text)))[1:]
-    members, targets = {}, {}
+            return f.read()
+    for n in range(4):   # Google 側が一時的に落ちることがあるので数回やり直す
+        try:
+            with urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": UA}), timeout=60) as r:
+                return r.read().decode("utf-8-sig")
+        except Exception as e:  # noqa: BLE001
+            log("  ! スプシ取得失敗", type(e).__name__, e)
+            time.sleep(5 * (n + 1))
+    raise RuntimeError("対応表(スプシ)が取得できなかった")
+
+
+def load_targets(src: str):
+    """(メンバー, グループ, ブログ/テーマの紐づけ) を返す。"""
+    rows = list(csv.reader(io.StringIO(_read_csv(src))))[1:]
+    names, targets = {}, {}
+    groups: dict[int, list[int]] = {}   # メンバー番号 → グループ番号
+    active: set[int] = set()
+
     for r in rows:
         r = (r + [""] * 5)[:5]
         no, name, platform, bid, theme = (x.strip() for x in r)
-        if platform not in ("ameblo", "ameblo_g") or not bid or not no.isdigit():
+        if not no.isdigit():
             continue
+        num = int(no)
+
+        if platform == "affiliation":
+            if bid in ACTIVE_AFFILIATIONS:
+                active.add(num)
+            continue
+        if platform in ("GroupNo", "SubGroup"):
+            if bid.isdigit() and int(bid) in GROUPNO and int(bid) not in groups.get(num, []):
+                groups.setdefault(num, []).append(int(bid))
+            continue
+        if platform not in ("ameblo", "ameblo_g") or not bid:
+            continue
+
         # ID列に theme-xxx.html 付きで入っている場合も拾う
         m = re.match(r"(?:https?://ameblo\.jp/)?([\w-]+)(?:/theme-(\d+)\.html)?", bid)
         if not m:
@@ -271,10 +302,20 @@ def load_targets(src: str):
         theme = theme or (m.group(2) or "")
         if platform == "ameblo_g" and not theme:
             continue  # テーマ不明のグループブログ行は誰の記事か決められないので紐づけない
-        members[int(no)] = name
-        targets[(blog, theme)] = int(no)
+        names[num] = name
+        targets[(blog, theme)] = num
+
+    members = [{
+        "member_no": k,
+        "name": v,
+        # LIKE で引くので前後にもカンマを付けた ",11,12," の形にする
+        "groups": ("," + ",".join(str(g) for g in groups.get(k, [])) + ",") if groups.get(k) else "",
+        "active": 1 if k in active else 0,
+    } for k, v in sorted(names.items())]
+    used = {g for k in names for g in groups.get(k, [])}
     return (
-        [{"member_no": k, "name": v} for k, v in sorted(members.items())],
+        members,
+        [{"group_no": g, "name": GROUPNO[g]} for g in sorted(used)],
         [{"blog": b, "theme_id": t, "member_no": n} for (b, t), n in sorted(targets.items())],
     )
 
@@ -445,13 +486,13 @@ def main():
     ab = Ameblo(a.delay)
     cr = Crawler(api, ab, a.max_fetch, time.time() + a.minutes * 60)
 
-    members, targets = load_targets(a.accounts)
+    members, groups, targets = load_targets(a.accounts)
     excluded = load_exclude()
     targets = [t for t in targets if t["blog"] not in excluded]
     used = {t["member_no"] for t in targets}
     members = [m for m in members if m["member_no"] in used]
     only = set(a.blogs.split(",")) if a.blogs else None
-    r = api.call("POST", "/api/crawl/targets", {"members": members, "targets": targets})
+    r = api.call("POST", "/api/crawl/targets", {"members": members, "groups": groups, "targets": targets})
     log(f"対象: メンバー{r['members']}人 / 紐づけ{r['targets']}件 (付け直し {r['remapped']})")
 
     blogs = sorted({t["blog"] for t in targets})

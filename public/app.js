@@ -1,6 +1,6 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-  const form = $("f"), qEl = $("q"), mEl = $("m"), orderEl = $("order");
+  const form = $("f"), qEl = $("q"), mEl = $("m"), gEl = $("g"), actEl = $("act"), orderEl = $("order");
   const statusEl = $("status"), list = $("results"), moreBtn = $("more");
   const calEl = $("cal"), yearsEl = $("years"), monthEl = $("month");
   const periodEl = $("period"), periodT = $("period-t");
@@ -9,6 +9,7 @@
   let cursor = null;
   let busy = false;
   let cal = null;       // 日付で見る: {key, months: Map(ym→件数), ym, days: Map(日→件数)}
+  let allMembers = [];  // /api/members のメンバー一覧(グループ・現役で絞ってプルダウンに出す)
 
   const fmt = (n) => Number(n || 0).toLocaleString("ja-JP");
 
@@ -36,7 +37,11 @@
     const meta = el("p", { class: "meta" },
       el("span", { class: "who" }, r.member || r.blog_title),
       el("time", {}, r.date),
-      r.member && r.blog_title !== r.member ? el("span", {}, r.blog_title) : null);
+      // ブログのトップと、その人のテーマ(グループブログの中の個人ページ)へ飛べるようにする
+      r.blog_title !== r.member
+        ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener" }, r.blog_title)
+        : null,
+      r.theme_url ? el("a", { href: r.theme_url, target: "_blank", rel: "noopener" }, `テーマ: ${r.theme}`) : null);
 
     const li = el("li", {},
       el("h2", {}, el("a", { href: r.url, target: "_blank", rel: "noopener" }, r.title)),
@@ -55,7 +60,7 @@
 
   function queryParams(c) {
     const p = new URLSearchParams();
-    for (const k of ["q", "m", "b", "d", "order"]) if (c[k]) p.set(k, c[k]);
+    for (const k of ["q", "m", "b", "g", "act", "d", "order"]) if (c[k]) p.set(k, c[k]);
     return p;
   }
 
@@ -184,7 +189,11 @@
     // メンバーの選択肢は「番号」か「番号@ブログID」(ブログが複数ある人のブログ別)
     const [m, b] = mEl.value.split("@");
     const d = keepPeriod && current ? current.d : "";
-    current = { q: qEl.value.trim(), m: m || "", b: b || "", d: d || "", order: orderEl.value };
+    current = {
+      q: qEl.value.trim(), m: m || "", b: b || "",
+      g: gEl.value, act: actEl.checked ? "1" : "",
+      d: d || "", order: orderEl.value,
+    };
     cursor = null;
 
     const u = new URL(location.href);
@@ -196,7 +205,7 @@
     periodT.textContent = current.d ? `期間: ${periodLabel(current.d)}` : "";
 
     loadCalendar().catch(() => { calEl.hidden = true; });
-    if (!current.q && !current.m && !current.d) {
+    if (!current.q && !current.m && !current.d && !current.g && !current.act) {
       list.textContent = "";
       statusEl.textContent = "";
       moreBtn.hidden = true;
@@ -212,6 +221,11 @@
     mEl.value = b ? `${m}@${b}` : m;
     if (mEl.value !== (b ? `${m}@${b}` : m)) mEl.value = m;
     orderEl.value = p.get("order") || "";
+    gEl.value = p.get("g") || "";
+    actEl.checked = p.get("act") === "1";
+    fillMembers();
+    mEl.value = b ? `${m}@${b}` : m;
+    if (mEl.value !== (b ? `${m}@${b}` : m)) mEl.value = m;
     const d = p.get("d") || "";
     current = { d: /^\d{4}(-\d{2}(-\d{2})?)?$/.test(d) ? d : "" };
     search(false, true);
@@ -219,23 +233,40 @@
 
   form.addEventListener("submit", (e) => { e.preventDefault(); search(true, true); });
   mEl.addEventListener("change", () => search(true, false));
+  gEl.addEventListener("change", () => { fillMembers(); search(true, false); });
+  actEl.addEventListener("change", () => { fillMembers(); search(true, false); });
   orderEl.addEventListener("change", () => search(true, true));
   moreBtn.addEventListener("click", () => run(true));
   $("period-x").addEventListener("click", () => { current.d = ""; search(true, true); });
   window.addEventListener("popstate", fromUrl);
 
-  fetch("/api/members").then((r) => r.json()).then((d) => {
-    for (const m of d.members) {
+  // グループ・現役の指定に合う人だけをメンバーのプルダウンに出す
+  function fillMembers() {
+    const keep = mEl.value;
+    const gNo = gEl.value ? Number(gEl.value) : null;
+    mEl.textContent = "";
+    mEl.append(el("option", { value: "" }, "全員"));
+    for (const m of allMembers) {
+      if (gNo && !m.groups.includes(gNo)) continue;
+      if (actEl.checked && !m.active) continue;
       if (m.blogs.length < 2) {
         mEl.append(el("option", { value: String(m.no) }, m.name));
         continue;
       }
       // ブログが複数ある人は、全部まとめて＋ブログごと
-      const g = el("optgroup", { label: m.name });
-      g.append(el("option", { value: String(m.no) }, `${m.name}（すべて）`));
-      for (const b of m.blogs) g.append(el("option", { value: `${m.no}@${b.id}` }, `${m.name}（${b.title}）`));
-      mEl.append(g);
+      const og = el("optgroup", { label: m.name });
+      og.append(el("option", { value: String(m.no) }, `${m.name}（すべて）`));
+      for (const b of m.blogs) og.append(el("option", { value: `${m.no}@${b.id}` }, `${m.name}（${b.title}）`));
+      mEl.append(og);
     }
+    mEl.value = keep;
+    if (mEl.value !== keep) mEl.value = "";   // 絞り込みで消えたらメンバー指定を外す
+  }
+
+  fetch("/api/members").then((r) => r.json()).then((d) => {
+    allMembers = d.members;
+    for (const g of d.groups || []) gEl.append(el("option", { value: String(g.no) }, g.name));
+    fillMembers();
     const s = d.stats || {};
     if (s.ingested) {
       $("stats").textContent = `収録 ${fmt(s.ingested)} 記事 / ${fmt(s.blogs)} ブログ` +

@@ -91,6 +91,8 @@ select {
   padding: 5px 8px;
   max-width: 60vw;
 }
+.opts .chk { gap: 4px; }
+.opts .chk input { accent-color: var(--accent); width: 16px; height: 16px; }
 .hint { margin: 10px 0 0; font-size: .8rem; color: var(--muted); }
 
 /* ---- 日付で見る ---- */
@@ -135,6 +137,7 @@ select {
 .days button small { font-size: .68rem; opacity: .85; }
 .days button:disabled { color: var(--muted); }
 
+.period[hidden] { display: none; }   /* display:flex が hidden を打ち消すのを防ぐ */
 .period { display: flex; align-items: center; gap: 6px; margin: 8px 2px 0; font-size: .88rem; }
 .period button { padding: 0 8px; line-height: 1.6; background: var(--cell1); color: var(--text); font-weight: 400; }
 
@@ -153,6 +156,8 @@ select {
 .results h2 a:hover { text-decoration: underline; }
 .meta { margin: 2px 0 6px; font-size: .8rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0 10px; }
 .meta .who { color: var(--text); font-weight: 600; }
+.meta a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+.meta a:hover { color: var(--accent); border-color: var(--accent); }
 .snip { margin: 4px 0 0; font-size: .92rem; overflow-wrap: anywhere; }
 .snip mark { background: var(--mark); color: var(--mark-ink); padding: 0 1px; border-radius: 2px; }
 .snip .ell { color: var(--muted); }
