@@ -204,6 +204,16 @@ def html_to_text(s: str) -> str:
 
 # ============================ Worker API ============================
 
+def times(e: dict) -> dict:
+    """一覧・記事ページにある日時と公開状態。一覧を読むだけで取れるので、全部記録しておく。"""
+    return {
+        "edited": e.get("last_edit_datetime") or "",
+        "ins_datetime": e.get("ins_datetime") or "",
+        "upd_datetime": e.get("upd_datetime") or "",
+        "publish_flg": e.get("publish_flg") or "",
+    }
+
+
 class DbLimit(Exception):
     """D1 の上限(無料枠の容量・1日の書き込み数)に当たった。"""
 
@@ -341,9 +351,27 @@ class Crawler:
         self.deadline = deadline
         self.inserted = 0
         self.deleted = 0
+        self.edited = 0
 
     def budget_left(self) -> bool:
         return self.ab.fetches < self.max_fetch and time.time() < self.deadline
+
+    def fetch_entry(self, blog: str, e: dict) -> dict | None:
+        """一覧の1件から、本文を取って Worker に送る形にする。記事ページが消えていたら None。"""
+        raw = self.ab.entry_body(blog, e["entry_id"])
+        if raw is None:
+            return None
+        return {
+            "entry_id": str(e["entry_id"]),
+            "blog": blog,
+            "theme_id": str(e.get("theme_id") or ""),
+            "theme_name": e.get("theme_name") or "",
+            "title": e.get("entry_title") or "",
+            "published": e.get("entry_created_datetime") or "",
+            "body": html_to_text(raw or ""),
+            "restricted": False,
+            **times(e),
+        }
 
     def ingest(self, blog: str, metas: list[dict]) -> bool:
         """一覧の記事(メタ情報)の本文を取って送る。途中で予算切れなら False。"""
@@ -356,20 +384,10 @@ class Crawler:
             if not self.budget_left():
                 self.flush(batch)
                 return False
-            raw = self.ab.entry_body(blog, e["entry_id"])
-            if raw is None:
+            item = self.fetch_entry(blog, e)
+            if item is None:
                 continue  # 記事ページが消えている
-            body = html_to_text(raw or "")
-            batch.append({
-                "entry_id": str(e["entry_id"]),
-                "blog": blog,
-                "theme_id": str(e.get("theme_id") or ""),
-                "theme_name": e.get("theme_name") or "",
-                "title": e.get("entry_title") or "",
-                "published": e.get("entry_created_datetime") or "",
-                "body": body,
-                "restricted": False,
-            })
+            batch.append(item)
             if len(batch) >= POST_BATCH:
                 self.flush(batch)
                 batch = []
@@ -425,8 +443,38 @@ class Crawler:
         else:
             lo = 0  # 最後のページの先: それより古い取り込み済み記事は全部一覧から消えたもの
             nxt = {"page": 1, "prev_min": None, "cycle_done": True}
-        listed = {str(e["entry_id"]) for e in entries if e.get("publish_flg") in (None, "open")}
-        stored = [r["id"] for r in self.api.call("POST", "/api/crawl/range", {"blog": blog, "lo": lo, "hi": prev_min}).get("rows", [])]
+        open_entries = {str(e["entry_id"]): e for e in entries if e.get("publish_flg") in (None, "open")}
+        listed = set(open_entries)
+        rows = self.api.call("POST", "/api/crawl/range", {"blog": blog, "lo": lo, "hi": prev_min}).get("rows", [])
+        stored = [r["id"] for r in rows]
+
+        # 編集: 一覧の last_edit_datetime とこちらの記録を比べる。一覧に載っているので記事は開かずに済む
+        #   記録が空 → 日時を記録し始める前に取り込んだ記事。日時だけ書き足す(本文は取り直さない)
+        #   記録と違う → 本人が編集した。本文を取り直して上書き
+        fill, changed = [], []
+        for r in rows:
+            e = open_entries.get(r["id"])
+            if not e or not e.get("last_edit_datetime"):
+                continue
+            if not r.get("edited"):
+                fill.append({"entry_id": r["id"], **times(e)})
+            elif r["edited"] != e["last_edit_datetime"]:
+                changed.append(e)
+        for k in range(0, len(fill), 100):
+            self.api.call("POST", "/api/crawl/meta", {"rows": fill[k:k + 100]})
+        batch = []
+        for e in changed:
+            if not self.budget_left():
+                self.flush(batch)
+                return False  # 同じページを次回やり直す
+            item = self.fetch_entry(blog, e)
+            if item:
+                batch.append(item)
+        self.flush(batch)
+        if changed:
+            log(f"  {blog}: 編集された記事 {len(batch)} 件を取り直し")
+            self.edited += len(batch)
+
         gone = []
         for i in (x for x in stored if x not in listed):
             if not self.budget_left():
@@ -540,7 +588,7 @@ def main():
         # 無料枠の上限。失敗扱いにせず終わる(Paidにするか翌日になれば次の実行で続きから)
         log(f"D1の上限に当たったので今回はここまで: {e}")
 
-    log(f"終了: 取得 {ab.fetches} 回 / 新規取り込み {cr.inserted} 件 / 削除 {cr.deleted} 件")
+    log(f"終了: 取得 {ab.fetches} 回 / 新規取り込み {cr.inserted} 件 / 編集 {cr.edited} 件 / 削除 {cr.deleted} 件")
 
 
 if __name__ == "__main__":

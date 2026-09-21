@@ -35,6 +35,33 @@ jobs:
           wranglerVersion: '4'
           command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN edited TEXT"
 
+      - name: Add column ins_datetime
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4'
+          command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN ins_datetime TEXT"
+
+      - name: Add column upd_datetime
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4'
+          command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN upd_datetime TEXT"
+
+      - name: Add column publish_flg
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4'
+          command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN publish_flg TEXT"
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:

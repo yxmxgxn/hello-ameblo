@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS entries (
   published  TEXT,
   body       TEXT,
   edited     TEXT,                        -- アメブロの last_edit_datetime。変わっていたら本文を取り直す
+  ins_datetime TEXT,                      -- アメブロの ins_datetime(記事のデータが作られた時刻)
+  upd_datetime TEXT,                      -- アメブロの upd_datetime(編集以外でも動く。判定には使わず記録だけ)
+  publish_flg  TEXT,                      -- アメブロの publish_flg(open=公開)
   restricted INTEGER NOT NULL DEFAULT 0,   -- アメンバー限定など本文が取れなかった記事
   fetched_at TEXT
 );

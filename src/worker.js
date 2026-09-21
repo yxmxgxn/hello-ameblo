@@ -15,7 +15,8 @@
  *   POST /api/crawl/purge      ブログ1つ分のデータを削除(除外リスト・削除依頼用)
  *   GET  /api/crawl/checks     削除チェックの進み具合
  *   POST /api/crawl/check      削除チェックの進み具合を更新
- *   POST /api/crawl/range      ブログ内のID範囲にある取り込み済み記事のID
+ *   POST /api/crawl/range      ブログ内のID範囲にある取り込み済み記事のIDと編集日時
+ *   POST /api/crawl/meta       取り込み済み記事に日時だけを書き足す
  *   POST /api/crawl/delete     アメブロ側で消えた記事を削除
  *   POST /api/crawl/notify-test  Discord 通知のテスト送信
  *
@@ -423,10 +424,12 @@ async function crawlEntries(request, env, ctx) {
       added[e.blog] = (added[e.blog] || 0) + 1;
     }
     stmts.push(env.DB.prepare(
-      "INSERT OR REPLACE INTO entries (entry_id, blog, theme_id, theme_name, member_no, title, published, body, edited, restricted, fetched_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT OR REPLACE INTO entries (entry_id, blog, theme_id, theme_name, member_no, title, published, body, " +
+      "edited, ins_datetime, upd_datetime, publish_flg, restricted, fetched_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(id, e.blog, String(e.theme_id || ""), e.theme_name || null, memberOf(e), e.title || "",
-      e.published || null, e.body || "", e.edited || null, e.restricted ? 1 : 0, ts));
+      e.published || null, e.body || "", e.edited || null, e.ins_datetime || null, e.upd_datetime || null,
+      e.publish_flg || null, e.restricted ? 1 : 0, ts));
     stmts.push(env.DB.prepare("INSERT INTO entry_fts (rowid, title, body) VALUES (?, ?, ?)")
       .bind(id, bigramText(e.title), bigramText(e.body)));
   }
@@ -463,6 +466,17 @@ async function crawlRange(request, env) {
     .prepare(`SELECT entry_id, edited FROM entries WHERE ${where.join(" AND ")} LIMIT 1000`)
     .bind(...binds).all();
   return json({ rows: results.map((r) => ({ id: String(r.entry_id), edited: r.edited || "" })) });
+}
+
+// 取り込み済みの記事に、一覧で読めた日時だけを書き足す(本文は取り直さない)
+async function crawlMeta(request, env) {
+  const { rows = [] } = await request.json();
+  if (!rows.length) return json({ ok: true, updated: 0 });
+  if (rows.length > 100) return json({ error: "too_many" }, 400);
+  await env.DB.batch(rows.map((r) => env.DB.prepare(
+    "UPDATE entries SET edited = ?, ins_datetime = ?, upd_datetime = ?, publish_flg = ? WHERE entry_id = ?"
+  ).bind(r.edited || null, r.ins_datetime || null, r.upd_datetime || null, r.publish_flg || null, Number(r.entry_id))));
+  return json({ ok: true, updated: rows.length });
 }
 
 async function crawlChecks(env) {
@@ -655,6 +669,7 @@ async function crawlRoute(request, env, p, ctx) {
       if (route === "GET checks") return crawlChecks(env);
       if (route === "POST check") return crawlCheck(request, env);
       if (route === "POST range") return crawlRange(request, env);
+      if (route === "POST meta") return crawlMeta(request, env);
       if (route === "POST delete") return crawlDelete(request, env);
       if (route === "POST notify-test") {
         if (!env.DISCORD_WEBHOOK) return json({ error: "DISCORD_WEBHOOK 未設定" }, 400);

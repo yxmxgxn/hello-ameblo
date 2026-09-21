@@ -374,9 +374,15 @@
   $("period-x").addEventListener("click", () => { current.d = ""; search(true, true); });
   window.addEventListener("popstate", fromUrl);
 
-  // 「もっと見る」が見えかけたら勝手に足す(ボタン自体は押しても動く)
+  // 自動読み込みは既定でオフ。オンにした人だけ「もっと見る」が見えかけたら勝手に足す
+  const autoEl = $("autoload");
+  try { autoEl.checked = localStorage.getItem("autoload") === "1"; } catch {}
+  autoEl.addEventListener("change", () => {
+    try { localStorage.setItem("autoload", autoEl.checked ? "1" : "0"); } catch {}
+    if (autoEl.checked && cursor && !busy && moreBtn.getBoundingClientRect().top < innerHeight + 400) run(true);
+  });
   new IntersectionObserver((es) => {
-    if (es.some((e) => e.isIntersecting) && cursor && !busy) run(true);
+    if (autoEl.checked && es.some((e) => e.isIntersecting) && cursor && !busy) run(true);
   }, { rootMargin: "400px" }).observe(moreBtn);
 
   fetch("/api/members").then((r) => r.json()).then((d) => {
