@@ -389,7 +389,7 @@ async function crawlKnown(request, env) {
   return json({ known: results.map((r) => String(r.entry_id)) });
 }
 
-async function crawlEntries(request, env) {
+async function crawlEntries(request, env, ctx) {
   const { entries = [] } = await request.json();
   if (!entries.length) return json({ ok: true, inserted: 0 });
   if (entries.length > INGEST_MAX) return json({ error: "too_many" }, 400);
@@ -411,15 +411,20 @@ async function crawlEntries(request, env) {
   const ts = now();
   const stmts = [];
   const added = {};
+  const edited = [];
   for (const e of entries) {
     const id = Number(e.entry_id);
-    if (exists.has(id)) stmts.push(env.DB.prepare("DELETE FROM entry_fts WHERE rowid = ?").bind(id));
-    else added[e.blog] = (added[e.blog] || 0) + 1;
+    if (exists.has(id)) {
+      stmts.push(env.DB.prepare("DELETE FROM entry_fts WHERE rowid = ?").bind(id));
+      edited.push(e);   // 取り込み済みの記事が来た = 編集されたので入れ直す
+    } else {
+      added[e.blog] = (added[e.blog] || 0) + 1;
+    }
     stmts.push(env.DB.prepare(
-      "INSERT OR REPLACE INTO entries (entry_id, blog, theme_id, theme_name, member_no, title, published, body, restricted, fetched_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT OR REPLACE INTO entries (entry_id, blog, theme_id, theme_name, member_no, title, published, body, edited, restricted, fetched_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(id, e.blog, String(e.theme_id || ""), e.theme_name || null, memberOf(e), e.title || "",
-      e.published || null, e.body || "", e.restricted ? 1 : 0, ts));
+      e.published || null, e.body || "", e.edited || null, e.restricted ? 1 : 0, ts));
     stmts.push(env.DB.prepare("INSERT INTO entry_fts (rowid, title, body) VALUES (?, ?, ?)")
       .bind(id, bigramText(e.title), bigramText(e.body)));
   }
@@ -437,6 +442,12 @@ async function crawlEntries(request, env) {
     if (/limit|exceed|quota|full|too big|SQLITE_FULL/i.test(msg)) return json({ error: "db_limit", message: msg }, 507);
     throw e;
   }
+  if (edited.length && env.DISCORD_WEBHOOK) {
+    const lines = edited.slice(0, 10)
+      .map((e) => `・[${e.title || "(無題)"}](${entryUrl(e.blog, e.entry_id)})`).join("\n");
+    ctx.waitUntil(notifyDiscord(env, `記事が編集されたので入れ直しました（${edited.length}件）`,
+      lines + (edited.length > 10 ? `\nほか${edited.length - 10}件` : "")));
+  }
   return json({ ok: true, inserted: Object.values(added).reduce((a, b) => a + b, 0), replaced: exists.size });
 }
 
@@ -447,9 +458,9 @@ async function crawlRange(request, env) {
   const binds = [blog, Number(lo) || 0];
   if (hi != null) { where.push("entry_id < ?"); binds.push(Number(hi)); }
   const { results } = await env.DB
-    .prepare(`SELECT entry_id FROM entries WHERE ${where.join(" AND ")} LIMIT 1000`)
+    .prepare(`SELECT entry_id, edited FROM entries WHERE ${where.join(" AND ")} LIMIT 1000`)
     .bind(...binds).all();
-  return json({ ids: results.map((r) => String(r.entry_id)) });
+  return json({ rows: results.map((r) => ({ id: String(r.entry_id), edited: r.edited || "" })) });
 }
 
 async function crawlChecks(env) {
@@ -472,6 +483,16 @@ async function crawlDelete(request, env) {
   const nums = ids.map(Number).filter(Number.isFinite).slice(0, 90);
   if (!nums.length) return json({ ok: true, deleted: 0 });
   const ph = nums.map(() => "?").join(",");
+  const { results: gone } = await env.DB.prepare(
+    `SELECT entry_id, blog, title, published FROM entries WHERE entry_id IN (${ph}) ORDER BY entry_id DESC`
+  ).bind(...nums).all();
+  // 消す前に必ず知らせる(あとから取り返せないため)
+  if (gone.length && env.DISCORD_WEBHOOK) {
+    const lines = gone.slice(0, 20).map((r) =>
+      `・${(r.published || "").slice(0, 10)} [${r.title || "(無題)"}](${entryUrl(r.blog, r.entry_id)})`).join("\n");
+    await notifyDiscord(env, `アメブロ側で消えた記事を削除します（${gone.length}件）`,
+      lines + (gone.length > 20 ? `\nほか${gone.length - 20}件` : ""));
+  }
   const { results } = await env.DB
     .prepare(`SELECT blog, count(*) AS n FROM entries WHERE entry_id IN (${ph}) GROUP BY blog`).bind(...nums).all();
   const stmts = [
@@ -605,7 +626,7 @@ export default {
     if (p.startsWith("/api/crawl/")) {
       if (!authorized(request, env)) return new Response("Not found", { status: 404 });
       try {
-        return await crawlRoute(request, env, p);
+        return await crawlRoute(request, env, p, ctx);
       } catch (e) {
         // 例外のままだと Cloudflare の汎用エラー(1101)になって原因が分からないので中身を返す
         const msg = String((e && e.message) || e);
@@ -619,14 +640,14 @@ export default {
   },
 };
 
-async function crawlRoute(request, env, p) {
+async function crawlRoute(request, env, p, ctx) {
   {
     {
       const route = `${request.method} ${p.slice("/api/crawl/".length)}`;
       if (route === "GET state") return crawlState(env);
       if (route === "POST targets") return crawlTargets(request, env);
       if (route === "POST known") return crawlKnown(request, env);
-      if (route === "POST entries") return crawlEntries(request, env);
+      if (route === "POST entries") return crawlEntries(request, env, ctx);
       if (route === "POST blog") return crawlBlog(request, env);
       if (route === "POST purge") return crawlPurge(request, env);
       if (route === "GET checks") return crawlChecks(env);

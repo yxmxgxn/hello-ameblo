@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS entries (
   title      TEXT,
   published  TEXT,
   body       TEXT,
+  edited     TEXT,                        -- アメブロの last_edit_datetime。変わっていたら本文を取り直す
   restricted INTEGER NOT NULL DEFAULT 0,   -- アメンバー限定など本文が取れなかった記事
   fetched_at TEXT
 );

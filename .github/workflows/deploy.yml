@@ -25,6 +25,16 @@ jobs:
           wranglerVersion: '4'
           command: d1 execute hello-ameblo --remote --file schema.sql
 
+      # 既存テーブルへの列追加。2回目以降は「列がある」で失敗するのでエラーは無視する
+      - name: Add columns
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4'
+          command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN edited TEXT"
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
