@@ -163,30 +163,35 @@ const entryUrl = (blog, id) => `https://ameblo.jp/${blog}/entry-${id}.html`;
 
 async function handleSearch(url, env) {
   const q = url.searchParams.get("q") || "";
-  const m = parseInt(url.searchParams.get("m") || "", 10);
+  // m は "12" でも "12,34,56"(メンバーの複数選択)でもよい
+  const ms = (url.searchParams.get("m") || "").split(",")
+    .map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n)).slice(0, 300);
   const blog = (url.searchParams.get("b") || "").slice(0, 100);
   // 期間: "2016" / "2016-03" / "2016-03-05"。published の前方一致(〜 d+"~" 未満)で引く
   const dRaw = url.searchParams.get("d") || "";
   const d = /^\d{4}(-\d{2}(-\d{2})?)?$/.test(dRaw) ? dRaw : "";
-  const g = parseInt(url.searchParams.get("g") || "", 10);
   const act = url.searchParams.get("act") === "1";
   const asc = url.searchParams.get("order") === "old";
   const cursor = parseInt(url.searchParams.get("cursor") || "", 10);
 
   const built = q.trim() ? buildMatch(q) : null;
   if (q.trim() && !built) return json({ error: "short", results: [], next: null });
-  if (!built && !Number.isFinite(m) && !d && !Number.isFinite(g) && !act) return json({ results: [], next: null });
+  // 語も絞り込みも無ければ、全ブログの新着をそのまま並べる(トップページ)
 
   const cols = "e.entry_id, e.blog, e.title, e.published, e.theme_id, e.theme_name, e.body, e.restricted, " +
     "mb.name AS member, b.title AS blog_title";
+  // メンバーを名指ししているなら、現役かどうかの判定はもう要らない
+  const needMeta = act && !ms.length;
   const joins = "LEFT JOIN members mb ON mb.member_no = e.member_no LEFT JOIN blogs b ON b.blog = e.blog" +
-    ((Number.isFinite(g) || act) ? " JOIN member_meta mm ON mm.member_no = e.member_no" : "");
+    (needMeta ? " JOIN member_meta mm ON mm.member_no = e.member_no" : "");
   const where = [];
   const binds = [];
-  // グループ・現役の絞り込み(メンバーを選んでいない時に効く)
-  const extra = () => {
-    if (Number.isFinite(g)) { where.push("mm.groups LIKE ?"); binds.push(`%,${g},%`); }
-    if (act) where.push("mm.active = 1");
+  // 誰の記事か(メンバー・ブログ・現役)の絞り込み
+  const narrow = () => {
+    if (ms.length === 1) { where.push("e.member_no = ?"); binds.push(ms[0]); }
+    else if (ms.length) { where.push(`e.member_no IN (${ms.map(() => "?").join(",")})`); binds.push(...ms); }
+    if (blog) { where.push("e.blog = ?"); binds.push(blog); }
+    if (needMeta) where.push("mm.active = 1");
   };
   let sql;
 
@@ -194,21 +199,18 @@ async function handleSearch(url, env) {
     // entry_fts を外側に回し、rowid(=記事ID)順にLIMITで打ち切らせる。ヒット数が多い語でも全件は読まない
     where.push("entry_fts MATCH ?");
     binds.push(built.match);
-    if (Number.isFinite(m)) { where.push("e.member_no = ?"); binds.push(m); }
-    if (blog) { where.push("e.blog = ?"); binds.push(blog); }
-    extra();
+    narrow();
     if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
     if (Number.isFinite(cursor)) { where.push(`entry_fts.rowid ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entry_fts JOIN entries e ON e.entry_id = entry_fts.rowid ${joins} ` +
       `WHERE ${where.join(" AND ")} ORDER BY entry_fts.rowid ${asc ? "ASC" : "DESC"} LIMIT ?`;
   } else {
-    // 語なし: メンバー・期間で絞った記事を並べる(カレンダーから日を選んだ時もこれ)
-    if (Number.isFinite(m)) { where.push("e.member_no = ?"); binds.push(m); }
-    if (blog) { where.push("e.blog = ?"); binds.push(blog); }
-    extra();
+    // 語なし: 絞り込みに合う記事を新しい順に並べる(新着一覧・カレンダーから日を選んだ時もこれ)
+    narrow();
     if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
     if (Number.isFinite(cursor)) { where.push(`e.entry_id ${asc ? ">" : "<"} ?`); binds.push(cursor); }
-    sql = `SELECT ${cols} FROM entries e ${joins} WHERE ${where.join(" AND ")} ` +
+    sql = `SELECT ${cols} FROM entries e ${joins} ` +
+      (where.length ? `WHERE ${where.join(" AND ")} ` : "") +
       `ORDER BY e.entry_id ${asc ? "ASC" : "DESC"} LIMIT ?`;
   }
   binds.push(PAGE + 1);

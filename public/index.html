@@ -14,22 +14,21 @@
 <header class="site-head">
   <h1><a href="/">アメブロ検索</a></h1>
   <p class="lead">ハロプロメンバーのアメブロを、本文から探せます。</p>
+  <p class="lead sec"><a href="/about.html">このサイトについて</a></p>
 </header>
 
 <main>
   <form id="f" class="search" role="search" autocomplete="off">
     <div class="q-row">
-      <input id="q" name="q" type="search" placeholder="例: りんご飴" aria-label="検索語" enterkeyhint="search">
+      <input id="q" name="q" type="search" placeholder="本文から探す（空のままなら新着）" aria-label="検索語" enterkeyhint="search">
       <button type="submit">検索</button>
     </div>
+
     <div class="opts">
-      <label>グループ
-        <select id="g" name="g"><option value="">すべて</option></select>
-      </label>
-      <label>メンバー
-        <select id="m" name="m"><option value="">全員</option></select>
-      </label>
-      <label class="chk"><input id="act" type="checkbox">ハロプロ現役のみ</label>
+      <button id="pick-open" class="pick-open" type="button" aria-expanded="false" aria-controls="panel">
+        <span id="pick-label">メンバー選択</span>
+      </button>
+      <label class="chk"><input id="act" type="checkbox" checked>ハロプロ現役のみ</label>
       <label>並び
         <select id="order" name="order">
           <option value="">新しい順</option>
@@ -37,7 +36,28 @@
         </select>
       </label>
     </div>
-    <p class="hint">空白で区切ると「全部含む」記事を探します。メンバーだけ選んで検索すると、その人の記事を一覧できます。</p>
+
+    <div id="chips" class="chips" hidden></div>
+
+    <!-- メンバー選択パネル。グループを押すとその中の全員が入る -->
+    <div id="panel" class="panel" hidden>
+      <div class="panel-h">
+        <input id="msearch" type="search" placeholder="名前で絞る" aria-label="メンバーを名前で絞る">
+        <button id="pick-sort" type="button" class="ghost" aria-pressed="false">あいうえお順</button>
+        <button id="pick-clear" type="button" class="ghost">すべて外す</button>
+        <button id="pick-close" type="button" class="ghost">閉じる</button>
+      </div>
+      <div class="panel-sec">
+        <h3>グループ</h3>
+        <div id="glist" class="taglist"></div>
+      </div>
+      <div class="panel-sec">
+        <h3>メンバー <span id="mcount" class="cnt"></span></h3>
+        <div id="mlist" class="taglist"></div>
+      </div>
+    </div>
+
+    <p class="hint">空白で区切ると「全部含む」記事を探します。検索語を入れずにメンバーだけ選ぶと、その人たちの記事が新しい順に並びます。</p>
   </form>
 
   <section id="cal" class="cal" hidden aria-label="日付で見る">

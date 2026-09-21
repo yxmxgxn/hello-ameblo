@@ -47,7 +47,6 @@ CREATE TABLE IF NOT EXISTS entries (
   body       TEXT,
   edited     TEXT,                        -- アメブロの last_edit_datetime。変わっていたら本文を取り直す
   restricted INTEGER NOT NULL DEFAULT 0,   -- アメンバー限定など本文が取れなかった記事
-  edited     TEXT,                        -- アメブロの last_edit_datetime。変わっていたら本文を取り直す
   fetched_at TEXT
 );
 CREATE INDEX IF NOT EXISTS entries_blog_theme ON entries(blog, theme_id);

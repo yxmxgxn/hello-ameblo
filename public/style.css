@@ -49,6 +49,8 @@ main, .site-head, .site-foot { max-width: 760px; margin: 0 auto; padding: 0 16px
 .site-head h1 { margin: 0; font-size: 1.5rem; letter-spacing: .02em; }
 .site-head h1 a { color: inherit; text-decoration: none; }
 .lead { margin: 4px 0 0; color: var(--muted); font-size: .92rem; }
+.lead.sec { font-size: .85rem; margin-top: 6px; }
+.lead a { color: inherit; }
 
 .search {
   margin: 16px 0 8px;
@@ -94,6 +96,93 @@ select {
 .opts .chk { gap: 4px; }
 .opts .chk input { accent-color: var(--accent); width: 16px; height: 16px; }
 .hint { margin: 10px 0 0; font-size: .8rem; color: var(--muted); }
+
+/* ---- メンバー選択 ---- */
+.pick-open {
+  padding: 5px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  font-weight: 400;
+  font-size: .9rem;
+}
+.pick-open[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chips[hidden] { display: none; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: var(--cell1);
+  color: var(--text);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+.chip button {
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: .9rem;
+  line-height: 1;
+}
+.chip button:hover { background: var(--accent); color: var(--accent-ink); }
+
+.panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.panel[hidden] { display: none; }
+.panel-h { display: flex; gap: 8px; align-items: center; }
+.panel-h input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: .9rem;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.ghost {
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  font-weight: 400;
+  font-size: .82rem;
+  white-space: nowrap;
+}
+.ghost:hover { color: var(--accent); border-color: var(--accent); }
+
+.panel-sec { margin-top: 12px; }
+.panel-sec h3 { margin: 0 0 6px; font-size: .82rem; color: var(--muted); font-weight: 400; }
+.cnt { font-variant-numeric: tabular-nums; }
+.taglist { display: flex; flex-wrap: wrap; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  font-weight: 400;
+  font-size: .85rem;
+}
+.tag:hover { border-color: var(--accent); }
+.tag.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+/* グループの一部だけが選ばれている状態 */
+.tag.part { border-color: var(--accent); color: var(--accent); }
+.tag .n { opacity: .7; font-size: .78em; margin-left: 3px; font-variant-numeric: tabular-nums; }
+.taglist .none { color: var(--muted); font-size: .85rem; }
 
 /* ---- 日付で見る ---- */
 .cal {
@@ -156,6 +245,16 @@ select {
 .results h2 a:hover { text-decoration: underline; }
 .meta { margin: 2px 0 6px; font-size: .8rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0 10px; }
 .meta .who { color: var(--text); font-weight: 600; }
+.meta .new {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  padding: 0 5px;
+  border-radius: 3px;
+  line-height: 1.6;
+}
 .meta a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--muted); }
 .meta a:hover { color: var(--accent); border-color: var(--accent); }
 .snip { margin: 4px 0 0; font-size: .92rem; overflow-wrap: anywhere; }
@@ -164,6 +263,20 @@ select {
 .locked { font-size: .82rem; color: var(--muted); }
 
 .more { display: block; margin: 8px auto 24px; background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+
+
+/* ---- about ページ ---- */
+main.doc { line-height: 1.8; }
+.doc-lead { font-size: 1.05rem; margin: 0 0 28px; color: var(--text); }
+main.doc h2 { margin-top: 32px; margin-bottom: 12px; font-size: 1.3rem; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+main.doc h3 { margin-top: 20px; margin-bottom: 8px; font-size: 1.1rem; }
+main.doc h3 + p { margin-top: 0; }
+main.doc p { margin: 8px 0; }
+main.doc ul { margin: 8px 0; padding-left: 24px; }
+main.doc li { margin: 6px 0; }
+.note { font-size: .92rem; color: var(--muted); margin-top: 12px; }
+main.doc strong { color: var(--accent); font-weight: 600; }
+main.doc em { font-style: italic; }
 
 .site-foot { padding-top: 16px; padding-bottom: 40px; font-size: .78rem; color: var(--muted); border-top: 1px solid var(--line); margin-top: 24px; }
 .site-foot p { margin: 4px 0; }

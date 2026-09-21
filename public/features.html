@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>機能一覧（試行中） - アメブロ検索</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+<style>
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  margin: 24px 0;
+}
+.feature-card {
+  padding: 20px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.feature-card h3 { margin: 0 0 12px; font-size: 1.05rem; }
+.feature-card ul { margin: 8px 0; padding-left: 20px; }
+.feature-card li { margin: 4px 0; font-size: .92rem; }
+.status-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 600;
+  margin-left: 6px;
+}
+.status-tag.done { background: #c6e5c9; color: #2d8c3c; }
+.status-tag.wip { background: #fff0a8; color: #1f1f1f; }
+.status-tag.plan { background: #f0f0ec; color: #6b6b6b; }
+</style>
+</head>
+<body>
+<header class="site-head">
+  <h1><a href="/">アメブロ検索</a></h1>
+  <p class="lead">開発中の機能と状態</p>
+  <p class="lead sec"><a href="/">検索に戻る</a> | <a href="/about.html">説明書</a></p>
+</header>
+
+<main>
+  <p>
+    このサイトはいま開発進行中です。<strong>実装済みの機能</strong>と<strong>作業中の機能</strong>を下に並べています。
+    2026年9月21日時点のスナップショット。
+  </p>
+
+  <h2>完成した機能</h2>
+  <div class="features-grid">
+    <div class="feature-card">
+      <h3>本文検索 <span class="status-tag done">実装済</span></h3>
+      <ul>
+        <li>キーワード単語の任意組み合わせ</li>
+        <li>ひらがな・カタカナは2文字以上</li>
+        <li>検索結果のスニペット表示（前後±40字）</li>
+        <li>マーク表示で一致箇所を強調</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <h3>メンバー絞り込み <span class="status-tag done">実装済</span></h3>
+      <ul>
+        <li>複数メンバーを同時選択</li>
+        <li>グループタグで一括ON/OFF</li>
+        <li>一部選択状態を可視化</li>
+        <li>複数ブログ対応</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <h3>現役フィルタ <span class="status-tag done">実装済</span></h3>
+      <ul>
+        <li>初期状態：ハロプロ現役のみ</li>
+        <li>チェック外すと全メンバー</li>
+        <li>卒業生を含めた検索に対応</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <h3>日付で見る <span class="status-tag done">実装済</span></h3>
+      <ul>
+        <li>年×月の投稿件数を可視化</li>
+        <li>カレンダー表示で日単位フィルタ</li>
+        <li>濃度で投稿多寡を表示</li>
+        <li>1人選択時のみ表示</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <h3>削除追跡 <span class="status-tag done">実装済</span></h3>
+      <ul>
+        <li>404確認で削除判定</li>
+        <li>削除前にDiscord通知</li>
+        <li>5日周期で全記事を見直し</li>
+        <li>手動検証で誤検知を防止</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <h3>編集追跡 <span class="status-tag done">実装済</span></h3>
+      <ul>
+        <li>last_edit_datetime で変更を検知</li>
+        <li>本文が変わったら再取得</li>
+        <li>Discord で更新を通知</li>
+        <li>前後の編集もキャッチ</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>作業中の機能</h2>
+  <div class="features-grid">
+    <div class="feature-card">
+      <h3>新着一覧トップ <span class="status-tag wip">作業中</span></h3>
+      <ul>
+        <li>検索語なしで全ブログ新着表示</li>
+        <li>当日記事に「NEW」バッジ</li>
+        <li>無限スクロール対応</li>
+        <li>フィルタは効かせたまま</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <h3>あいうえお順ソート <span class="status-tag wip">作業中</span></h3>
+      <ul>
+        <li>パネル内でトグルボタン</li>
+        <li>グループ順↔あいうえお順</li>
+        <li>読み仮名取得を待機中</li>
+        <li>ボタンUI実装済み</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>計画中の機能</h2>
+  <div class="features-grid">
+    <div class="feature-card">
+      <h3>RSS配信 <span class="status-tag plan">計画中</span></h3>
+      <ul>
+        <li>メンバー選択状態を保存</li>
+        <li>フィルタ済みRSSを配信</li>
+        <li>好きなメンバーだけの購読フィード</li>
+        <li>実装は未定</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <h3>説明書（tech） <span class="status-tag plan">計画中</span></h3>
+      <ul>
+        <li>技術解説（仕組みの詳細）</li>
+        <li>Qiita / note 転記予定</li>
+        <li>SEO対策との両立</li>
+        <li>基本機能確定後に執筆</li>
+      </ul>
+    </div>
+  </div>
+
+  <p style="margin-top: 32px; font-size: .9rem; color: var(--muted);">
+    このページは開発状況のスナップショットです。最新情報は <a href="/about.html">説明書</a>をご覧ください。
+  </p>
+</main>
+
+<footer class="site-foot">
+  <p><a href="/">検索に戻る</a></p>
+  <p>本文はこのサイトには表示しません。記事は Ameba ブログ（ameblo.jp）でお読みください。</p>
+</footer>
+</body>
+</html>
