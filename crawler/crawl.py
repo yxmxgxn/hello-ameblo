@@ -426,7 +426,7 @@ class Crawler:
             lo = 0  # 最後のページの先: それより古い取り込み済み記事は全部一覧から消えたもの
             nxt = {"page": 1, "prev_min": None, "cycle_done": True}
         listed = {str(e["entry_id"]) for e in entries if e.get("publish_flg") in (None, "open")}
-        stored = self.api.call("POST", "/api/crawl/range", {"blog": blog, "lo": lo, "hi": prev_min})["ids"]
+        stored = [r["id"] for r in self.api.call("POST", "/api/crawl/range", {"blog": blog, "lo": lo, "hi": prev_min}).get("rows", [])]
         gone = []
         for i in (x for x in stored if x not in listed):
             if not self.budget_left():
