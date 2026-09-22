@@ -52,7 +52,7 @@ function bigramText(s) {
 // 1文字は漢字だけ受け付け、その字で始まる bigram の前方一致にする(かな1文字は多すぎて重い)。
 function buildMatch(q) {
   const terms = [];
-  for (const raw of q.slice(0, MAX_Q).split(/[\s　]+/)) {
+  for (const raw of q.split(/[\s　]+/)) {
     const n = normalize(raw);
     if (!n || terms.includes(n)) continue;
     terms.push(n);
@@ -175,8 +175,14 @@ async function handleSearch(url, env) {
   const asc = url.searchParams.get("order") === "old";
   const cursor = parseInt(url.searchParams.get("cursor") || "", 10);
 
+  // 文字数は見た目の1文字(絵文字も1)で数える
+  if ([...q.trim()].length > MAX_Q) return json({ error: "long", max: MAX_Q, results: [], next: null });
   const built = q.trim() ? buildMatch(q) : null;
-  if (q.trim() && !built) return json({ error: "short", results: [], next: null });
+  if (q.trim() && !built) {
+    // 正規化で全部消えた(記号・絵文字だけ) と、残ったが短すぎる(かな1文字など) を分けて返す
+    const why = normalize(q) ? "short" : "empty";
+    return json({ error: why, results: [], next: null });
+  }
   // 語も絞り込みも無ければ、全ブログの新着をそのまま並べる(トップページ)
 
   const cols = "e.entry_id, e.blog, e.title, e.published, e.theme_id, e.theme_name, e.body, e.restricted, " +

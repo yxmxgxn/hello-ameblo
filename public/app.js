@@ -104,8 +104,13 @@
 
     try {
       const d = await (await fetch("/api/search?" + params)).json();
-      if (d.error === "short") {
-        statusEl.textContent = "検索語が短すぎます（ひらがな・カタカナは2文字以上）";
+      const why = {
+        short: "検索語が短すぎます（ひらがな・カタカナ・英数字は2文字以上。漢字は1文字から）",
+        long: `検索語が長すぎます（${d.max}文字まで）`,
+        empty: "検索に使える文字がありません（記号・絵文字は検索に使えません）",
+      }[d.error];
+      if (why) {
+        statusEl.textContent = why;
         moreBtn.hidden = true;
         return;
       }
@@ -374,16 +379,6 @@
   $("period-x").addEventListener("click", () => { current.d = ""; search(true, true); });
   window.addEventListener("popstate", fromUrl);
 
-  // 自動読み込みは既定でオフ。オンにした人だけ「もっと見る」が見えかけたら勝手に足す
-  const autoEl = $("autoload");
-  try { autoEl.checked = localStorage.getItem("autoload") === "1"; } catch {}
-  autoEl.addEventListener("change", () => {
-    try { localStorage.setItem("autoload", autoEl.checked ? "1" : "0"); } catch {}
-    if (autoEl.checked && cursor && !busy && moreBtn.getBoundingClientRect().top < innerHeight + 400) run(true);
-  });
-  new IntersectionObserver((es) => {
-    if (autoEl.checked && es.some((e) => e.isIntersecting) && cursor && !busy) run(true);
-  }, { rootMargin: "400px" }).observe(moreBtn);
 
   fetch("/api/members").then((r) => r.json()).then((d) => {
     allMembers = d.members || [];

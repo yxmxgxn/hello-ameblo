@@ -262,9 +262,7 @@ select {
 .snip .ell { color: var(--muted); }
 .locked { font-size: .82rem; color: var(--muted); }
 
-.autoload { display: flex; justify-content: center; align-items: center; gap: 6px; margin: 0 0 24px; font-size: .85rem; color: var(--muted); }
-.autoload input { accent-color: var(--accent); width: 16px; height: 16px; }
-.more { display: block; margin: 8px auto 12px; background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.more { display: block; margin: 8px auto 24px; background: transparent; color: var(--accent); border: 1px solid var(--accent); }
 
 
 /* ---- about ページ ---- */
