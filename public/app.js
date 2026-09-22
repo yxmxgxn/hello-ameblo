@@ -19,6 +19,20 @@
   let hold = null;          // 選ぶたびに叩かないよう少し待つ
 
   const fmt = (n) => Number(n || 0).toLocaleString("ja-JP");
+  // サーバー(src/worker.js の MAX_Q / MAX_TERMS)と同じ上限
+  const MAX_Q = 100, MAX_TERMS = 5;
+  const WHY = {
+    short: "検索語が短すぎます（ひらがな・カタカナ・英数字は2文字以上。漢字は1文字から）",
+    long: `検索語が長すぎます（${MAX_Q}文字まで）`,
+    many: `区切った語が多すぎます（${MAX_TERMS}語まで）`,
+    empty: "検索に使える文字がありません（記号・絵文字は検索に使えません）",
+  };
+  // 送る前に分かる理由。長い語はURLにも履歴にも残さない
+  function tooMuch(q) {
+    if ([...q].length > MAX_Q) return "long";
+    if (q.split(/[\s　]+/).filter(Boolean).length > MAX_TERMS) return "many";
+    return null;
+  }
   // 日本時間の今日。新着に NEW を付けるのに使う
   const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
@@ -104,11 +118,7 @@
 
     try {
       const d = await (await fetch("/api/search?" + params)).json();
-      const why = {
-        short: "検索語が短すぎます（ひらがな・カタカナ・英数字は2文字以上。漢字は1文字から）",
-        long: `検索語が長すぎます（${d.max}文字まで）`,
-        empty: "検索に使える文字がありません（記号・絵文字は検索に使えません）",
-      }[d.error];
+      const why = WHY[d.error];
       if (why) {
         statusEl.textContent = why;
         moreBtn.hidden = true;
@@ -304,6 +314,13 @@
 
   // keepPeriod: 期間(d)を引き継ぐか。メンバーを変えた時は外す
   function search(pushHistory, keepPeriod) {
+    const bad = tooMuch(qEl.value.trim());
+    if (bad) {
+      list.textContent = "";
+      moreBtn.hidden = true;
+      statusEl.textContent = WHY[bad];
+      return;
+    }
     current = {
       q: qEl.value.trim(),
       m: [...picked].join(","),

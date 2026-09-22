@@ -177,6 +177,9 @@ async function handleSearch(url, env) {
 
   // 文字数は見た目の1文字(絵文字も1)で数える
   if ([...q.trim()].length > MAX_Q) return json({ error: "long", max: MAX_Q, results: [], next: null });
+  if (q.split(/[\s　]+/).filter(Boolean).length > MAX_TERMS) {
+    return json({ error: "many", max: MAX_TERMS, results: [], next: null });
+  }
   const built = q.trim() ? buildMatch(q) : null;
   if (q.trim() && !built) {
     // 正規化で全部消えた(記号・絵文字だけ) と、残ったが短すぎる(かな1文字など) を分けて返す
