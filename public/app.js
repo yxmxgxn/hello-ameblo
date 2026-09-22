@@ -16,6 +16,7 @@
   const picked = new Set(); // 選択中のメンバー番号。グループを押すとまとめて入る
   let blogPick = "";        // 1人だけ選んだ時の、その人のブログ別指定
   let byKana = false;       // メンバーの並び: false=グループ順(既定) / true=あいうえお順
+  let gView = null;         // メンバー一覧をどのグループに絞って見せているか(null=すべて)。選択とは別
   let hold = null;          // 選ぶたびに叩かないよう少し待つ
 
   const fmt = (n) => Number(n || 0).toLocaleString("ja-JP");
@@ -112,7 +113,7 @@
     const params = queryParams(current);
     if (append && cursor) params.set("cursor", cursor);
     if (!append) {
-      list.textContent = "";
+      list.classList.add("loading");
       statusEl.textContent = current.q ? "検索中…" : "読み込み中…";
     }
 
@@ -120,21 +121,26 @@
       const d = await (await fetch("/api/search?" + params)).json();
       const why = WHY[d.error];
       if (why) {
+        list.textContent = "";
         statusEl.textContent = why;
         moreBtn.hidden = true;
         return;
       }
       if (d.error) throw new Error(d.message || d.error);
-      for (const r of d.results) list.append(render(r));
+      const rows = d.results.map(render);
+      if (append) list.append(...rows);
+      else list.replaceChildren(...rows);   // 届いてから一度に入れ替える
       cursor = d.next;
       moreBtn.hidden = !cursor;
       const shown = list.children.length;
       if (!shown) statusEl.textContent = current.q ? "見つかりませんでした" : "記事がありません";
       else statusEl.textContent = (current.q ? "" : "新着 ") + `${fmt(shown)} 件表示${cursor ? "（まだあります）" : ""}`;
     } catch (e) {
+      if (!append) list.textContent = "";
       statusEl.textContent = "読み込めませんでした: " + e.message;
       moreBtn.hidden = true;
     } finally {
+      list.classList.remove("loading");
       busy = false;
     }
   }
@@ -256,23 +262,25 @@
     pickLabel.textContent = picked.size ? `メンバー選択　現在${picked.size}人` : "メンバー選択";
   }
 
+  // グループのタグは「一覧をそのグループに絞って見せる」切り替え。押しても誰も選ばれない。
+  // 数字は「選んでいる人数/その中の人数」
+  function groupTag(label, mem, on, onclick) {
+    const n = mem.filter((m) => picked.has(m.no)).length;
+    return el("button", { type: "button", class: "tag" + (on ? " on" : ""), "aria-pressed": on, onclick },
+      label, el("span", { class: "n" }, n ? `${n}/${mem.length}` : String(mem.length)));
+  }
+
   function drawPanel() {
     const q = msearch.value.trim();
     glist.textContent = "";
-    for (const g of allGroups) {
-      const mem = inGroup(g);
-      if (!mem.length) continue;             // 現役のみだと誰も残らないグループは出さない
-      const on = mem.filter((m) => picked.has(m.no)).length;
-      glist.append(el("button", {
-        type: "button",
-        class: "tag" + (on === mem.length ? " on" : on ? " part" : ""),
-        "aria-pressed": on === mem.length,
-        onclick: () => toggleGroup(g),
-      }, g.name, el("span", { class: "n" }, String(mem.length))));
-    }
+    glist.append(groupTag("すべて", pool(), gView === null, () => setView(null)));
+    const groups = allGroups.filter((g) => inGroup(g).length);   // 現役のみだと誰も残らないグループは出さない
+    if (gView !== null && !groups.some((g) => g.no === gView)) gView = null;
+    for (const g of groups) glist.append(groupTag(g.name, inGroup(g), gView === g.no, () => setView(g.no)));
 
     mlist.textContent = "";
-    const shown = pool().filter((m) => !q || m.name.includes(q) || (m.kana || "").includes(q));
+    const base = gView === null ? pool() : inGroup({ no: gView });
+    const shown = base.filter((m) => !q || m.name.includes(q) || (m.kana || "").includes(q));
     // 読み仮名が無い人は末尾に回す(並べようがないので)
     if (byKana) shown.sort((a, b) => (a.kana || "んん").localeCompare(b.kana || "んん", "ja"));
     for (const m of shown) {
@@ -285,20 +293,27 @@
     }
     if (!shown.length) mlist.append(el("span", { class: "none" }, "該当なし"));
     mcount.textContent = `${fmt(shown.length)}人`;
+
+    // グループに絞っている時だけ、見えている人をまとめて選べる
+    const allBtn = $("pick-all");
+    const all = shown.length && shown.every((m) => picked.has(m.no));
+    allBtn.hidden = gView === null || !shown.length;
+    allBtn.textContent = all ? "全員外す" : "全員選ぶ";
+    allBtn.onclick = () => {
+      for (const m of shown) if (all) picked.delete(m.no); else picked.add(m.no);
+      drawChips();
+      drawPanel();
+      queueSearch();
+    };
+  }
+
+  function setView(no) {
+    gView = no;
+    drawPanel();
   }
 
   function toggleMember(no) {
     if (picked.has(no)) picked.delete(no); else picked.add(no);
-    drawChips();
-    drawPanel();
-    queueSearch();
-  }
-
-  // グループを押すと、その中の(現役のみの指定に合う)全員が入る。全員入っていれば全員外す
-  function toggleGroup(g) {
-    const mem = inGroup(g);
-    const all = mem.every((m) => picked.has(m.no));
-    for (const m of mem) if (all) picked.delete(m.no); else picked.add(m.no);
     drawChips();
     drawPanel();
     queueSearch();
@@ -362,6 +377,10 @@
   }
 
   form.addEventListener("submit", (e) => { e.preventDefault(); search(true, true); });
+  // 検索語を消しきったら、その場で検索語なしの表示(選んでいるメンバーの新着)に戻す
+  qEl.addEventListener("input", () => {
+    if (!qEl.value.trim() && current && current.q) search(true, true);
+  });
   orderEl.addEventListener("change", () => search(true, true));
   actEl.addEventListener("change", () => {
     // 現役のみに戻したら、卒業生の選択は外す

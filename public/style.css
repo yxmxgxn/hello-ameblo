@@ -165,6 +165,10 @@ select {
 .ghost:hover { color: var(--accent); border-color: var(--accent); }
 
 .panel-sec { margin-top: 12px; }
+.sec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.sec-h h3 { margin: 0 !important; }
+/* 次の結果が届くまで前の結果を薄く残す(一覧を空にすると画面が詰まってピクッと動くため) */
+.results.loading { opacity: .45; transition: opacity .15s; }
 .panel-sec h3 { margin: 0 0 6px; font-size: .82rem; color: var(--muted); font-weight: 400; }
 .cnt { font-variant-numeric: tabular-nums; }
 .taglist { display: flex; flex-wrap: wrap; gap: 6px; max-height: 40vh; overflow-y: auto; }
@@ -283,4 +287,10 @@ main.doc em { font-style: italic; }
 
 @media (max-width: 420px) {
   .years { font-size: .62rem; gap: 2px; grid-template-columns: 2.6em repeat(12, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  /* スマホでは名前の入力欄を1行使い、ボタンはその下に並べる */
+  .panel-h { flex-wrap: wrap; }
+  .panel-h input { flex: 1 1 100%; }
 }
