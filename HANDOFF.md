@@ -78,6 +78,10 @@ README.md が「何がどこにあるか」なのに対して、こちらは「�
   `-` は「取り込まない（取り込み済みなら消す）」。`title`/`default` は**必ずテーマを指定する**
   （指定しないと、テーマがちゃんと付いている記事まで書き換えてしまう。実際に一度やらかした）。
 - **`crawler/exclude.txt`**: 巡回しないブログ。削除依頼が来たらここ。
+- **合言葉（Worker シークレット `SITE_PASS`）**: お披露目までの目隠し。設定してあると、サイト全体が
+  Basic認証（利用者名は何でもよい）になる。`npx wrangler@4 secret put SITE_PASS` で設定・変更、
+  `npx wrangler@4 secret delete SITE_PASS` で解除（消せば誰でも見られる状態に戻る）。
+  クローラ用API（`/api/crawl/*`）は Bearer トークンで守っているので、合言葉の対象外。
 
 ---
 

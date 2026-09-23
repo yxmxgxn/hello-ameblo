@@ -163,6 +163,24 @@ function json(obj, status = 200, cache = "no-store") {
 
 const entryUrl = (blog, id) => `https://ameblo.jp/${blog}/entry-${id}.html`;
 
+// 合言葉が合っているか(Basic認証の形。利用者名は何でもよく、合言葉だけを見る)
+function locked(request, pass) {
+  const got = request.headers.get("authorization") || "";
+  if (!got.startsWith("Basic ")) return false;
+  let decoded = "";
+  try {
+    decoded = atob(got.slice(6));
+  } catch {
+    return false;
+  }
+  const given = decoded.slice(decoded.indexOf(":") + 1);
+  // 長さの違いで中身が漏れないよう、最後まで見てから比べる
+  if (given.length !== pass.length) return false;
+  let diff = 0;
+  for (let i = 0; i < pass.length; i++) diff |= given.charCodeAt(i) ^ pass.charCodeAt(i);
+  return diff === 0;
+}
+
 async function handleSearch(url, env) {
   const q = url.searchParams.get("q") || "";
   // m は "12" でも "12,34,56"(メンバーの複数選択)でもよい
@@ -779,6 +797,21 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname;
+
+    // お披露目まではひと目に触れないよう、合言葉を知っている人だけ通す。
+    // SITE_PASS(Worker のシークレット)を消せば、この関門ごと無くなる。
+    // クローラ用のAPIは Bearer トークンで守っているので対象外。
+    if (env.SITE_PASS && !p.startsWith("/api/crawl/") && !locked(request, env.SITE_PASS)) {
+      return new Response("この画面はまだ準備中です。\n", {
+        status: 401,
+        headers: {
+          "www-authenticate": 'Basic realm="hello-ameblo", charset="UTF-8"',
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "no-store",
+          "x-robots-tag": "noindex, nofollow",
+        },
+      });
+    }
 
     // 公開API: 同一IPからの叩きすぎを止める(workers.dev では WAF が使えないので Worker 側で)
     if (p.startsWith("/api/") && !p.startsWith("/api/crawl/") && env.RL) {

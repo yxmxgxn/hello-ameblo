@@ -5,8 +5,9 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    // /api/* はアセットが無いので、ブラウザで直接開いても Worker が動くよう明示する
-    "run_worker_first": ["/api/*"]
+    // すべて Worker を通す。合言葉(SITE_PASS)を画面にも掛けるため。
+    // 合言葉をやめるときは ["/api/*"] に戻すと、静的ファイルは Worker を通らず配信される
+    "run_worker_first": true
   },
   // 毎時7分に GitHub Actions のクロールを起動する(src/worker.js の scheduled)
   "triggers": {
