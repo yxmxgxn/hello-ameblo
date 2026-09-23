@@ -1,6 +1,7 @@
 # 引き継ぎメモ（2026-09-24 時点）
 
-このファイルは、**別の会話でこのサイトの運用を引き継ぐための資料**です。
+このファイルは、**このサイトの運用を引き継ぐための資料**です（このリポジトリは公開しているので、
+手元の環境の情報や鍵の類は書かない）。
 README.md が「何がどこにあるか」なのに対して、こちらは「いまどうなっていて、何を待っていて、なぜそうしたか」を書きます。
 作業のたびに、末尾の「作業ログ」と「いまの状態」を更新してください。
 
@@ -9,7 +10,7 @@ README.md が「何がどこにあるか」なのに対して、こちらは「�
 ## 0. 最初に読む3行
 
 - 公開URL: https://hello-ameblo.yxmxgxn.workers.dev （**noindex。お披露目はまだ**）
-- リポジトリ: `C:\Users\mouse\ameblo-search`（GitHub: yxmxgxn/hello-ameblo、public）。**karin-archive とは別物**
+- リポジトリ: このリポジトリ（GitHub: yxmxgxn/hello-ameblo）。**karin-archive とは別の Worker・別リポジトリ**
 - クロールは毎時7分に自動で回っている。**触らなくても動く**。壊れたときだけ直す
 
 ---
@@ -90,11 +91,11 @@ README.md が「何がどこにあるか」なのに対して、こちらは「�
 
 ### いまどうなっているか調べる（読むだけ。書き込みはしない）
 ```bash
-cd /c/Users/mouse/ameblo-search
+# リポジトリのルートで
 npx --yes wrangler@4 d1 execute hello-ameblo --remote --json --command "SELECT count(*) v FROM entries"
 ```
-※ Windows のコンソールは cp932 なので、日本語を含む結果は `python -c "print(...)"` で直接出すと
-UnicodeEncodeError になる。**いったんファイルに書いてから `cat` する**のが確実。
+※ 端末の文字コードによっては、日本語を含む結果をそのまま標準出力に流すと文字化けや例外になる。
+**いったんファイルに書いてから読む**のが確実。
 
 ### 手元で動かす（本番D1を汚さない）
 ```bash
