@@ -237,6 +237,8 @@ select {
 .status { min-height: 1.7em; margin: 12px 2px; font-size: .9rem; color: var(--muted); }
 
 .results { list-style: none; margin: 0; padding: 0; }
+/* 読み込み中の空の一覧。高さが無いと下のボタンが上がってきてページが揺れる */
+.results:empty { min-height: 70vh; }
 .results li {
   padding: 14px 16px;
   margin-bottom: 10px;
@@ -269,6 +271,26 @@ select {
 .more { display: block; margin: 8px auto 24px; background: transparent; color: var(--accent); border: 1px solid var(--accent); }
 
 
+/* ---- about / tech ページ ---- */
+main.doc pre {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: .8rem;
+  line-height: 1.7;
+  margin: 12px 0;
+}
+main.doc code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: .92em;
+}
+main.doc :not(pre) > code { background: var(--cell0); padding: 1px 4px; border-radius: 4px; }
+main.doc table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .88rem; }
+main.doc th, main.doc td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+main.doc th { background: var(--cell0); font-weight: 600; }
+main.doc ol { margin: 8px 0; padding-left: 24px; }
 /* ---- about ページ ---- */
 main.doc { line-height: 1.8; }
 .doc-lead { font-size: 1.05rem; margin: 0 0 28px; color: var(--text); }

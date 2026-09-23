@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>仕組み - アメブロ検索</title>
+<meta name="description" content="アメブロ検索の実装解説。Cloudflare Workers + D1、FTS5 contentless + bigram での日本語全文検索、正規化と文字位置マップ、クローラの設計、編集・削除の判定。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-head">
+  <h1><a href="/">アメブロ検索</a></h1>
+  <p class="lead">仕組み（実装の話）</p>
+  <p class="lead sec"><a href="/about">このサイトについて</a> ｜ <a href="/">検索に戻る</a></p>
+</header>
+
+<main class="doc">
+  <p class="doc-lead">
+    ハロー！プロジェクトのメンバーのアメブロ74ブログ・約35万記事を、本文から横断検索できるようにした個人サイトの実装解説です。
+    ソースコードは公開していません。同じ作りのクローラが増えるとアメブロ側の負担になるためです。
+    そのかわり、何をどう取得し、何を保存し、どこで止めているかは、この文章で全部説明します。
+    数値は2026-09-23時点の実測です。
+  </p>
+
+  <h2>1. 全体構成</h2>
+  <p>
+    Cloudflare Workers 1つ、D1（SQLite）1つ、GitHub Actions 上で動く Python のクローラ1本。それだけです。
+    サーバーもコンテナもありません。
+  </p>
+  <pre><code>GitHub Actions (Python)          Cloudflare Workers            D1 (SQLite, APAC)
+  ├ ameblo.jp を 1req/s で取得  →  /api/crawl/* で受け取り  →  entries / entry_fts
+  └ 対応表(スプシCSV)を毎回読む     正規化・bigram 化はここ      targets / blogs / checks
+
+                                 /api/search  ← ブラウザ（静的アセットは同じ Worker から配信）</code></pre>
+  <p>
+    正規化と bigram 化を<strong>クローラ側ではなく Worker 側に寄せている</strong>のが要点です。
+    索引を作るコードと検索語を処理するコードが同じ関数でないと、索引と問い合わせがずれて「入っているのに出てこない」が起きます。
+    クローラは本文のテキスト化までを担当し、索引の都合を一切知りません。
+  </p>
+  <p>
+    Workers を選んだのは、D1 と Cron Triggers と静的配信が1つのデプロイに収まるからです。
+    同じアカウントの別サイトと Worker を分けているのは、クロールで勝手にデータが増え続ける系のものを、
+    人が編集する系のサイトと同じ運用単位に入れたくないからです。
+  </p>
+
+  <h2>2. データモデル</h2>
+  <pre><code>entries(entry_id PK, blog, theme_id, theme_name, member_no, title, published,
+        body, edited, ins_datetime, upd_datetime, publish_flg, restricted, fetched_at)
+entry_fts USING fts5(title, body, content='', contentless_delete=1)   -- rowid = entry_id
+targets(blog, theme_id, member_no)   -- どのブログ・テーマが誰のものか
+blogs(blog, title, total, newest_id, cursor_page, done, ingested, updated_at)
+checks(blog, page, prev_min, cycles, updated_at)                      -- 削除チェックの進捗
+members / groups / member_meta(groups, active)</code></pre>
+  <p>
+    <code>entry_id</code> はアメブロの記事番号をそのまま主キーにしています。
+    時系列でほぼ単調増加するので、並び順とページングのカーソルを兼ねられます。
+    FTS5 の <code>rowid</code> と一致させてあるので、索引とテーブルの突き合わせに追加の対応表が要りません。
+  </p>
+  <p>
+    誰の記事かは <code>targets</code> で解決します。個人ブログは <code>theme_id=''</code> の行でブログ丸ごと1人に、
+    グループブログは「ブログ＋テーマ番号」で1人に割り当てます。
+    どちらにも当たらない記事（テーマ無し、スタッフ投稿など）は <code>member_no</code> を NULL のままにします。
+    推測で誰かに割り当てることはしません。
+  </p>
+
+  <h2>3. 日本語全文検索：FTS5 contentless + bigram</h2>
+  <p>
+    形態素解析は使っていません。Workers の実行環境に形態素辞書を持ち込むと、
+    数MBの辞書をリクエストのたびに読むことになり、辞書の更新でヒット結果が変わります。
+    かわりに<strong>2文字ずつの n-gram（bigram）</strong>を索引にしています。
+    未知語・固有名詞・当て字・顔文字混じりの口語に強く、辞書の管理も要りません。
+  </p>
+  <pre><code>-- 索引は本文を持たない(content='')。索引だけで約5KB/記事、本文は entries 側に1本だけ
+CREATE VIRTUAL TABLE entry_fts USING fts5(title, body, content='', contentless_delete=1);
+
+-- 「りんご飴」→ 保存する索引の中身
+りん んご ご飴</code></pre>
+  <p>
+    <code>content=''</code>（contentless）にしているので、FTS5 は本文のコピーを持ちません。
+    bigram を展開した文字列は索引に必要なだけで、そのまま保存すると本文がもう1部増えるのと変わらないからです。
+    編集・削除で索引を差し替えられるよう <code>contentless_delete=1</code> を付けています。
+  </p>
+
+  <h3>正規化</h3>
+  <p>索引を作るときと検索語を処理するとき、完全に同じ関数を通します。</p>
+  <pre><code>const KEEP = /[0-9a-z々〆぀-ヿ㐀-䶿一-鿿]/u;
+const DROP = /[^0-9a-z々〆぀-ヿ㐀-䶿一-鿿]/gu;
+const normalize = (s) =&gt; s.normalize("NFKC").toLowerCase().replace(DROP, "");</code></pre>
+  <p>
+    NFKC で全角英数と半角カナをそろえ、小文字化し、残すのは
+    <strong>英数字・ひらがな・カタカナ・漢字・々〆</strong>だけ。記号・約物・絵文字は索引にも検索語にも入れません。
+    結果として「りんご飴」で本文の「りんご、飴」「りんご<br>飴」も拾えます。
+    句読点や改行の入り方で取りこぼすより、その方が実用的でした。
+  </p>
+  <p>
+    文字クラスを範囲で直書きするとき、<strong>U+3400–U+9FFF の外に手を伸ばすとサロゲートペアを踏みます</strong>。
+    最初に拡張漢字まで含めようとして U+FAFF までを範囲に入れたところ、
+    絵文字より後ろのスニペットの文字位置が全部ずれました。上の範囲はその事故のあとに絞ったものです。
+  </p>
+
+  <h3>検索語からクエリを組む</h3>
+  <p>
+    語ごとに bigram を並べ、<strong>FTS5 のフレーズ（引用符）</strong>にして位置の連続を要求します。
+    これで「部分一致」に近い挙動になります。語どうしは AND です。
+  </p>
+  <pre><code>"りんご飴"        → "りん んご ご飴"
+"りんご 飴"       → "りん んご" AND (飴は1文字なので後述)
+"ＪＵＩＣＥ"       → "ju ui ic ce"        (NFKC + 小文字化の結果)
+"娘"             → "娘" *                (漢字1文字は前方一致)
+"あ" / "a"        → 検索しない            (かな・英数字1文字はヒットが多すぎる)</code></pre>
+  <p>
+    フレーズにしないと「りん」「んご」「ご飴」がバラバラの位置に出現する記事まで当たります。
+    漢字1文字だけは <code>"娘" *</code> の前方一致にして、その字で始まる bigram を拾います。
+    かな1文字を許すと索引の大半を走査することになるので落としています。
+  </p>
+  <p>
+    上限は<strong>100文字・5語</strong>。超えたぶんを黙って切るのではなく、
+    <code>error: long</code> / <code>error: many</code> を返し、ブラウザ側でも送信前に同じ判定をして
+    URLにも履歴にも残さないようにしています。
+    正規化で何も残らなかった場合（記号・絵文字だけ）は <code>error: empty</code> として、
+    「短すぎる」とは別の理由で返します。
+  </p>
+
+  <h2>4. スニペット：正規化前の本文との位置合わせ</h2>
+  <p>
+    検索は正規化後の文字列で当てますが、画面に出すのは<strong>正規化前の本文</strong>です。
+    絵文字も記号も元のまま表示したいので、正規化後の位置から元の位置を引ける対応表を作ります。
+  </p>
+  <pre><code>// 正規化後の i 文字目が、元の本文の map[i] 文字目から始まる
+function normMap(body) {
+  let norm = ""; const map = [];
+  for (let i = 0; i &lt; body.length;) {
+    const ch = String.fromCodePoint(body.codePointAt(i));   // サロゲートペアを1文字として進む
+    for (const c of ch.normalize("NFKC").toLowerCase()) if (KEEP.test(c)) { norm += c; map.push(i); }
+    i += ch.length;
+  }
+  return { norm, map };
+}</code></pre>
+  <p>
+    切り出しは前後40字、1記事あたり最大2か所。近い一致はまとめて1つの窓にします。
+    窓の端がサロゲートペアの途中に来たら1文字ぶん戻します（戻さないと壊れた文字が出ます）。
+    本文を丸ごと返さないのは、このサイトの目的が「元記事へ送ること」だからです。
+  </p>
+  <pre><code>… かき氷🍧 唐揚げ🍖 チョコバナナ🍫🍌 焼きとうもろこし🌽 【りんご飴】🍎 お好み焼き🍪 …</code></pre>
+
+  <h2>5. ページング</h2>
+  <p>
+    <code>OFFSET</code> は使いません。深いページほど読み飛ばす行が増え、
+    その間に新着が入ると表示がずれます。
+    <code>entry_id</code>（= FTS5 の rowid）のカーソルにしています。
+  </p>
+  <pre><code>SELECT … FROM entry_fts JOIN entries e ON e.entry_id = entry_fts.rowid …
+WHERE entry_fts MATCH ? AND entry_fts.rowid &lt; ?   -- 前回の最後のID
+ORDER BY entry_fts.rowid DESC LIMIT 21             -- 20件 + 「次があるか」の1件</code></pre>
+  <p>
+    FTS5 を外側（駆動表）に置き、rowid 順に読んで LIMIT で打ち切らせるのが肝です。
+    ヒット件数の多い語でも全件を読みません。総件数は出していません。
+    出そうとすると全ヒットを数える羽目になり、それが一番重い処理になるからです。
+  </p>
+
+  <h2>6. クローラ</h2>
+  <h3>取得のしかた</h3>
+  <p>
+    アメブロのページは <code>window.INIT_DATA</code> に記事のJSONが入っています。HTMLの構造には依存しません。
+  </p>
+  <ul>
+    <li><code>entrylist-N.html</code>：1ページ20件。<strong>本文以外のほぼ全部</strong>（タイトル・テーマ・4つの日時・公開状態・総件数・最大ページ数）が取れる</li>
+    <li><code>entry-ID.html</code>：本文（<code>entry_text</code>）</li>
+  </ul>
+  <p>
+    <strong>1リクエスト1秒、1回の実行で最大3000リクエスト・50分</strong>で自分から止まります。
+    並列化はしていません。全ブログが同じ ameblo.jp なので、並べたところで負担をかける先は同じです。
+    この速度だと全記事の初回取得に4日ほどかかりますが、急ぐ理由がありません。
+  </p>
+
+  <h3>3つのフェーズ</h3>
+  <ol>
+    <li><strong>新着</strong>：各ブログの1ページ目を読み、保存済みの最新IDより新しいものだけ本文を取る</li>
+    <li><strong>削除チェック</strong>：一覧を1ページ目から順に読み直す（1回150ページ）</li>
+    <li><strong>遡り</strong>：残った予算で過去ページを1ページずつ埋める</li>
+  </ol>
+  <p>
+    削除チェックは「前のページの最古ID 〜 このページの最古ID」というID範囲で進みます。
+    ページ番号で覚えると、途中で新着が入ったときに全体が1つずつずれて、確認漏れが出ます。
+    150ページ × 20件 = 3000件ずつ、全35万記事を約5日で一周します。新しい記事ほど頻繁に見直されます。
+  </p>
+
+  <h2>7. 編集と削除の判定</h2>
+  <p>アメブロの記事には日時が4つあります。実測した値の動きはこうでした。</p>
+  <table>
+    <thead><tr><th>項目</th><th>意味</th><th>編集したとき</th></tr></thead>
+    <tbody>
+      <tr><td><code>entry_created_datetime</code></td><td>投稿日時（画面に出る日時）</td><td>変わらない</td></tr>
+      <tr><td><code>ins_datetime</code></td><td>レコードが作られた時刻</td><td>変わらない</td></tr>
+      <tr><td><code>last_edit_datetime</code></td><td>最後に編集した時刻</td><td><strong>変わる</strong></td></tr>
+      <tr><td><code>upd_datetime</code></td><td>最後に更新された時刻</td><td>変わる（毎回10秒ほど遅れる）</td></tr>
+    </tbody>
+  </table>
+  <p>
+    判定に使うのは <code>last_edit_datetime</code> だけです。
+    <code>upd_datetime</code> は本人の編集と無関係にも動きそうな挙動だったので、判定に使うと取り直しが無駄に増えます。
+    ただし4つとも保存しています。<strong>一覧を読めば全部ついてくるので、保存してもリクエストは1回も増えません。</strong>
+    実際、投稿日時が <code>ins_datetime</code> より後になっている記事（予約投稿か、投稿日時を手で変えたもの）が見つかりました。
+    取っていなければ気づけません。
+  </p>
+  <p>
+    <strong>編集</strong>は、削除チェックで一覧を読み直すついでに比べます。
+    一覧に日時が載っているので、記事ページは開きません。違っていたときだけ本文を取り直します。
+  </p>
+  <p>
+    <strong>削除</strong>は、一覧から消えた記事についてだけ、その記事のURLを1回開いて確かめます。
+  </p>
+  <pre><code>404 / 410                      → gone    （消す）
+200 だが publish_flg≠open       → gone    （非公開・下書きに戻された）
+タイムアウト / 5xx / 本文が読めない → unknown （消さない。次の巡回に回す）</code></pre>
+  <p>
+    実際に自分のテスト記事を消して確認したところ、削除済みの記事は <strong>404</strong> を返しました。
+    「消えたように見える」で消さないのが要点で、通信の失敗と本当の削除を混同すると、
+    こちらのデータだけが静かに欠けていきます。<strong>消す直前に Discord へ記事のタイトルとURLを通知</strong>してから消します。
+    取り返せない操作だけは、あとから追えるようにしています。
+  </p>
+
+  <h2>8. 起動：GitHub の schedule をやめた話</h2>
+  <p>
+    最初は GitHub Actions の <code>schedule</code> で毎時起動していましたが、混雑する時間帯に遅れる・飛ばされる。
+    いまは <strong>Cloudflare の Cron Trigger（毎時7分）が Worker を起こし、Worker が GitHub API の
+    <code>workflow_dispatch</code> を叩く</strong>形にしています。Cron Trigger は時刻どおりに来ます。
+  </p>
+  <p>
+    ワークフロー側は <code>concurrency: crawl</code> で同時実行を1本に制限。
+    50分走って10分休む、を毎時くり返します。3時間動いていなければ Discord に通知します。
+  </p>
+
+  <h2>9. 公開APIの守り</h2>
+  <ul>
+    <li><strong>レート制限</strong>：Workers の Ratelimit バインディングで、同一IPから60秒に120回まで</li>
+    <li><strong>キャッシュ</strong>：Cache API で同じ条件の結果を5分。連続した絞り込みで D1 を何度も叩かない</li>
+    <li><strong>入力の上限</strong>：検索語100文字・5語、メンバー指定300人、1ページ20件</li>
+    <li><strong>noindex</strong>：<code>_headers</code> と meta の両方で <code>noindex, nofollow</code>。APIの応答にも付けている</li>
+  </ul>
+  <p>
+    ブラウザ側は、メンバーのタグを連続で押しても最後の1回しか投げません（250ms待つ）。
+    検索中は前の結果を薄く残したまま差し替えます。一覧を空にすると、その瞬間だけページが縮んで画面が跳ねるからです。
+  </p>
+
+  <h2>10. 容量と費用</h2>
+  <table>
+    <thead><tr><th></th><th>実測（2026-09-23）</th><th>全35万記事での見込み</th></tr></thead>
+    <tbody>
+      <tr><td>記事数</td><td>164,444</td><td>約348,900</td></tr>
+      <tr><td>D1 のサイズ</td><td>823 MB</td><td>約1.7 GB</td></tr>
+      <tr><td>1記事あたり</td><td colspan="2">約5 KB（本文＋bigram索引＋メタ）</td></tr>
+    </tbody>
+  </table>
+  <p>
+    D1 の無料枠は500MBなので、途中で頭を打ちます。書き込み行数の日次上限にも当たりました。
+    Workers Paid（月$5）にして解決しています。費用はこれだけです。
+    索引が contentless でなければ、この倍近くになっていました。
+  </p>
+
+  <h2>11. わかっている制約</h2>
+  <ul>
+    <li><strong>ひらがなとカタカナは別扱い</strong>。「りんご」で「リンゴ」は出ません。
+      統一するには索引の作り直しが要りますが、本文は D1 にあるのでアメブロへの再取得は不要です</li>
+    <li><strong>アクセント付きのラテン文字は落ちます</strong>（<code>Café</code> → <code>caf</code>）。NFKC は é を分解しないため</li>
+    <li><strong>並びは entry_id 順</strong>。ほぼ投稿時刻順ですが、予約投稿では数十秒〜数分前後します</li>
+    <li><strong>総ヒット件数は出しません</strong>（数えるコストが検索本体より重いため）</li>
+    <li><strong>メンバーの読み仮名がない</strong>ので、あいうえお順は元データの整備待ちです</li>
+  </ul>
+
+  <h2>12. 取らない・やらないと決めたこと</h2>
+  <ul>
+    <li>画像・動画は<strong>1バイトも保存しない</strong>。文字だけです</li>
+    <li>アメンバー限定記事の本文は取り込まない</li>
+    <li>OGPカードと X・Instagram の埋め込みは本文から除く（本人の文章ではなく、検索のノイズになる）</li>
+    <li>本文の全文は画面に出さない。一致箇所の前後だけを出して元記事へ送る</li>
+    <li>誰の記事か決められないものに、推測でメンバーを割り当てない</li>
+    <li>並列取得も、取得間隔の短縮もしない</li>
+  </ul>
+  <p>
+    消してほしい・載せないでほしいという連絡があれば、そのように対応します。
+  </p>
+</main>
+
+<footer class="site-foot">
+  <p><a href="/about">このサイトについて</a> ｜ <a href="/">検索に戻る</a></p>
+  <p>本文はこのサイトには表示しません。記事は Ameba ブログ（ameblo.jp）でお読みください。</p>
+</footer>
+</body>
+</html>
