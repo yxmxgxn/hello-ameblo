@@ -38,6 +38,12 @@ ACCOUNTS_CSV = (
     "2PACX-1vSLHCVWWxyVI5GS9SSohSNYL4U-uY4jekuMXbaKYXYjWrSZlgSxGV0BFvnCWRrd-A4Z5sqkoRwRyDqD/pub"
     "?gid=1522035537&single=true&output=csv"
 )
+# メンバーの「よみがな」だけはこちら(ハロプロメンバーのスプシ)から読む
+MEMBERS_CSV = (
+    "https://docs.google.com/spreadsheets/d/e/"
+    "2PACX-1vQFLNyFnLg0oxCm_39mnbRCwttmKUKffQk7_nAZxeydw41KBaFHTR9TqHsHvYvcsZ5Bgl1fQlBPCs0Q/pub"
+    "?gid=837040930&single=true&output=csv"
+)
 UA = "Mozilla/5.0 (compatible; hello-ameblo-crawler/0.1; +https://hello-ameblo.yxmxgxn.workers.dev/)"
 PER_PAGE = 20
 POST_BATCH = 20
@@ -338,6 +344,26 @@ def _read_csv(src: str) -> str:
     raise RuntimeError("対応表(スプシ)が取得できなかった")
 
 
+def load_kana(src: str) -> dict[int, str]:
+    """メンバー番号 → よみがな。取れなければ空(あいうえお順が使えなくなるだけ)。"""
+    try:
+        rows = list(csv.reader(io.StringIO(_read_csv(src))))
+    except Exception as e:  # noqa: BLE001
+        log("  ! よみがなが取れなかった", type(e).__name__, e)
+        return {}
+    if not rows:
+        return {}
+    head = rows[0]
+    col = next((i for i, c in enumerate(head) if "よみ" in c or "ヨミ" in c or c.lower() in ("yomigana", "kana")), None)
+    if col is None:
+        return {}
+    out = {}
+    for r in rows[1:]:
+        if len(r) > col and r[0].strip().isdigit() and r[col].strip():
+            out[int(r[0])] = r[col].strip()
+    return out
+
+
 def load_targets(src: str):
     """(メンバー, グループ, ブログ/テーマの紐づけ) を返す。"""
     rows = list(csv.reader(io.StringIO(_read_csv(src))))[1:]
@@ -593,6 +619,7 @@ def main():
     ap.add_argument("--api", default=os.environ.get("CRAWL_API"), help="WorkerのURL")
     ap.add_argument("--token", default=os.environ.get("CRAWL_TOKEN"))
     ap.add_argument("--accounts", default=ACCOUNTS_CSV, help="SNSスプシ(accounts)のCSV URLかパス")
+    ap.add_argument("--members", default=MEMBERS_CSV, help="メンバースプシ(よみがな)のCSV URLかパス")
     ap.add_argument("--blogs", help="このブログだけ巡回(カンマ区切り。試験用)")
     ap.add_argument("--max-fetch", type=int, default=3000, help="アメブロへのリクエスト上限")
     ap.add_argument("--minutes", type=float, default=50, help="実行時間の上限(分)")
@@ -610,6 +637,9 @@ def main():
     cr = Crawler(api, ab, a.max_fetch, time.time() + a.minutes * 60, fixes)
 
     members, groups, targets = load_targets(a.accounts)
+    kana = load_kana(a.members)
+    for mb in members:
+        mb["kana"] = kana.get(mb["member_no"], "")
     excluded = load_exclude()
     targets = [t for t in targets if t["blog"] not in excluded]
     used = {t["member_no"] for t in targets}

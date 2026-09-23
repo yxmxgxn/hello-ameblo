@@ -7,7 +7,14 @@
 -- メンバー名。番号はSNSスプシ(accounts)の1列目と同じ。
 CREATE TABLE IF NOT EXISTS members (
   member_no INTEGER PRIMARY KEY,
-  name      TEXT NOT NULL
+  name      TEXT NOT NULL,
+  kana      TEXT                         -- よみがな(メンバースプシの「よみがな」列)。あいうえお順に使う
+);
+
+-- 1回きりの覚え書き(最後にテーマ無しを知らせた時の巡回回数など)
+CREATE TABLE IF NOT EXISTS state (
+  k TEXT PRIMARY KEY,
+  v TEXT
 );
 
 -- どのブログ(・テーマ)が誰のものか。SNSスプシの ameblo / ameblo_g 行から毎回作り直す。

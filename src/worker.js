@@ -294,7 +294,7 @@ function shortTitle(t) {
 async function handleMembers(env) {
   const [{ results: rows }, { results: stats }, { results: groups }] = await env.DB.batch([
     env.DB.prepare(
-      "SELECT DISTINCT mb.member_no, mb.name, mm.groups, mm.active, t.blog, b.title, b.newest_id FROM members mb " +
+      "SELECT DISTINCT mb.member_no, mb.name, mb.kana, mm.groups, mm.active, t.blog, b.title, b.newest_id FROM members mb " +
       "JOIN targets t ON t.member_no = mb.member_no LEFT JOIN blogs b ON b.blog = t.blog " +
       "LEFT JOIN member_meta mm ON mm.member_no = mb.member_no " +
       "ORDER BY mb.member_no, b.newest_id DESC"
@@ -312,6 +312,7 @@ async function handleMembers(env) {
       members.push(mb = {
         no: r.member_no,
         name: r.name,
+        kana: r.kana || "",
         active: r.active ? 1 : 0,
         groups: (r.groups || "").split(",").filter(Boolean).map(Number),
         blogs: [],
@@ -359,7 +360,8 @@ async function crawlTargets(request, env) {
   const stmts = [env.DB.prepare("DELETE FROM members"), env.DB.prepare("DELETE FROM targets")];
   stmts.push(env.DB.prepare("DELETE FROM member_meta"), env.DB.prepare("DELETE FROM groups"));
   for (const mb of members) {
-    stmts.push(env.DB.prepare("INSERT OR REPLACE INTO members (member_no, name) VALUES (?, ?)").bind(mb.member_no, mb.name));
+    stmts.push(env.DB.prepare("INSERT OR REPLACE INTO members (member_no, name, kana) VALUES (?, ?, ?)")
+      .bind(mb.member_no, mb.name, mb.kana || null));
     stmts.push(env.DB.prepare("INSERT OR REPLACE INTO member_meta (member_no, groups, active) VALUES (?, ?, ?)")
       .bind(mb.member_no, mb.groups || "", mb.active ? 1 : 0));
   }
@@ -708,6 +710,35 @@ async function notifyDiscord(env, title, description) {
   });
 }
 
+// 削除チェックが全ブログを一周したら(5日ほど)、書き手が決まっていない記事を知らせる。
+// テーマの付け忘れや新しいテーマは、ここで初めて気づけるため。
+async function reportUnassigned(env) {
+  if (!env.DISCORD_WEBHOOK) return;
+  const [{ results: cyc }, { results: last }] = await env.DB.batch([
+    env.DB.prepare(
+      "SELECT min(c.cycles) AS done FROM checks c JOIN blogs b ON b.blog = c.blog WHERE b.ingested > 0"
+    ),
+    env.DB.prepare("SELECT v FROM state WHERE k = 'unassigned_notified'"),
+  ]);
+  const done = Number(cyc[0] && cyc[0].done);
+  if (!Number.isFinite(done) || done < 1) return;
+  if (done <= Number((last[0] && last[0].v) || 0)) return;   // 前に知らせた周回と同じなら何もしない
+
+  const { results } = await env.DB.prepare(
+    "SELECT blog, ifnull(nullif(theme_name, ''), '(テーマ無し)') AS theme, theme_id, count(*) AS n " +
+    "FROM entries WHERE member_no IS NULL GROUP BY blog, theme_id ORDER BY n DESC LIMIT 20"
+  ).all();
+  await env.DB.prepare("INSERT OR REPLACE INTO state (k, v) VALUES ('unassigned_notified', ?)")
+    .bind(String(done)).run();
+  if (!results.length) return;
+
+  const total = results.reduce((a, r) => a + r.n, 0);
+  const lines = results.map((r) =>
+    `・${r.n}件 ${r.blog} / ${r.theme}（theme-${r.theme_id || "なし"}）`).join("\n");
+  await notifyDiscord(env, `書き手が決まっていない記事が ${total} 件あります（${done}周目）`,
+    lines + "\n\ncrawler/fixes.tsv か SNSスプシで割り当ててください。");
+}
+
 async function checkStalled(env) {
   if (!env.DISCORD_WEBHOOK) return;
   const row = await env.DB.prepare("SELECT max(updated_at) AS t FROM blogs").first();
@@ -725,6 +756,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(dispatchCrawl(env));
     ctx.waitUntil(checkStalled(env).catch((e) => console.log("停止チェック失敗", String(e))));
+    ctx.waitUntil(reportUnassigned(env).catch((e) => console.log("テーマ無しの報告に失敗", String(e))));
   },
 
   async fetch(request, env, ctx) {

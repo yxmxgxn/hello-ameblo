@@ -145,10 +145,7 @@ title	angerme-amerika	中西香菜	93
 title	angerme-amerika	竹内朱莉	95
 title	angerme-amerika	勝田里奈	96
 title	angerme-amerika	田村芽実	97
-title	angerme-amerika	和田彩花	89
-title	angerme-amerika	福田花音	91
-title	angerme-amerika	室田瑞希	98
-default	angerme-amerika	-	# 署名が無い記事は書き手を決めない
+default	angerme-amerika	-	# 署名が無い記事は書き手を決めない（書いているのはこの4人だけ）
 
 # ── beyooooonds-chicatetsu ──
 entry	12974068138	167	# 2026-07-28 まのゆな〜　西田汐里
@@ -296,3 +293,8 @@ entry	12975373354	171	#
 entry	12927685264	157	#
 entry	12976979612	125	# 2026-08-27 夏　Riai（松永里愛の署名）
 entry	12972624226	125	# 2026-07-13 参戦　Riai（松永里愛の署名）
+# ── Juice=Juice 公式のテーマ無し（スタッフ投稿。まだ取り込んでいない） ──
+entry	12118084109	-	# スタッフ
+entry	11938319662	-	# スタッフ
+entry	11614231578	-	# スタッフ
+entry	11614105531	-	# スタッフ
