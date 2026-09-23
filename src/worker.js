@@ -17,6 +17,7 @@
  *   POST /api/crawl/check      削除チェックの進み具合を更新
  *   POST /api/crawl/range      ブログ内のID範囲にある取り込み済み記事のIDと編集日時
  *   POST /api/crawl/meta       取り込み済み記事に日時だけを書き足す
+ *   POST /api/crawl/fix        crawler/fixes.tsv の例外指定を取り込み済みの記事に反映
  *   POST /api/crawl/delete     アメブロ側で消えた記事を削除
  *   POST /api/crawl/notify-test  Discord 通知のテスト送信
  *
@@ -415,6 +416,8 @@ async function crawlEntries(request, env, ctx) {
   const exists = new Set(known.map((r) => Number(r.entry_id)));
   const map = new Map(tg.map((t) => [`${t.blog}\t${t.theme_id}`, t.member_no]));
   const memberOf = (e) => {
+    // クローラが例外指定(fixes.tsv)で決めた書き手があれば、対応表より優先する
+    if (e.member_no !== undefined) return e.member_no === null ? null : Number(e.member_no);
     const k = `${e.blog}\t${e.theme_id || ""}`;
     if (map.has(k)) return map.get(k);
     return map.get(`${e.blog}\t`) ?? null;
@@ -475,6 +478,97 @@ async function crawlRange(request, env) {
     .prepare(`SELECT entry_id, edited FROM entries WHERE ${where.join(" AND ")} LIMIT 1000`)
     .bind(...binds).all();
   return json({ rows: results.map((r) => ({ id: String(r.entry_id), edited: r.edited || "" })) });
+}
+
+// タイトルの署名で書き手を決める。名前が複数出てくるときは後ろにある方(署名はふつう末尾)
+function byTitle(title, rules, fallback) {
+  const t = (title || "").toLowerCase();
+  let best = null, at = -1, len = 0;
+  for (const r of rules) {
+    const i = t.lastIndexOf(r.key);
+    if (i < 0) continue;
+    if (i > at || (i === at && r.key.length > len)) { best = r.member_no; at = i; len = r.key.length; }
+  }
+  return best === null ? fallback : best;
+}
+
+// crawler/fixes.tsv の例外指定を、取り込み済みの記事に反映する
+async function crawlFix(request, env) {
+  const { themes = [], entries = [], titles = [], defaults = {} } = await request.json();
+  const stmts = [];
+  const blogs = new Set();
+  let removed = 0;
+
+  for (const t of themes) {
+    blogs.add(t.blog);
+    if (t.member_no === null) {
+      stmts.push(env.DB.prepare(
+        "DELETE FROM entry_fts WHERE rowid IN (SELECT entry_id FROM entries WHERE blog = ? AND theme_id = ?)"
+      ).bind(t.blog, String(t.theme_id)));
+      stmts.push(env.DB.prepare("DELETE FROM entries WHERE blog = ? AND theme_id = ?")
+        .bind(t.blog, String(t.theme_id)));
+      removed++;
+    } else {
+      stmts.push(env.DB.prepare("UPDATE entries SET member_no = ? WHERE blog = ? AND theme_id = ? AND member_no IS NOT ?")
+        .bind(t.member_no, t.blog, String(t.theme_id), t.member_no));
+    }
+  }
+
+  const del = entries.filter((e) => e.member_no === null).map((e) => Number(e.entry_id));
+  // 消す記事がどのブログのものかを先に控えておく(あとで件数を数え直すため)
+  for (let i = 0; i < del.length; i += 90) {
+    const ids = del.slice(i, i + 90);
+    const { results } = await env.DB
+      .prepare(`SELECT DISTINCT blog FROM entries WHERE entry_id IN (${ids.map(() => "?").join(",")})`)
+      .bind(...ids).all();
+    for (const r of results) blogs.add(r.blog);
+  }
+  for (let i = 0; i < del.length; i += 90) {
+    const ids = del.slice(i, i + 90);
+    const ph = ids.map(() => "?").join(",");
+    stmts.push(env.DB.prepare(`DELETE FROM entry_fts WHERE rowid IN (${ph})`).bind(...ids));
+    stmts.push(env.DB.prepare(`DELETE FROM entries WHERE entry_id IN (${ph})`).bind(...ids));
+  }
+  for (const e of entries) {
+    if (e.member_no === null) continue;
+    stmts.push(env.DB.prepare("UPDATE entries SET member_no = ? WHERE entry_id = ? AND member_no IS NOT ?")
+      .bind(Number(e.member_no), Number(e.entry_id), Number(e.member_no)));
+  }
+
+  // タイトルで決める指定。まだその指定で決まっていない記事だけを見る(2回目以降はほぼ0件)
+  let retitled = 0;
+  const byBlog = new Map();
+  for (const r of titles) {
+    if (!byBlog.has(r.blog)) byBlog.set(r.blog, []);
+    byBlog.get(r.blog).push({ key: String(r.key).toLowerCase(), member_no: Number(r.member_no) });
+  }
+  for (const [blog, rules] of byBlog) {
+    blogs.add(blog);
+    const mine = [...new Set(rules.map((r) => r.member_no))];
+    const fallback = blog in defaults ? defaults[blog] : undefined;
+    const ph = mine.map(() => "?").join(",");
+    const { results } = await env.DB.prepare(
+      `SELECT entry_id, title, member_no FROM entries WHERE blog = ? ` +
+      `AND (member_no IS NULL OR member_no NOT IN (${ph})) LIMIT 3000`
+    ).bind(blog, ...mine).all();
+    for (const row of results) {
+      const who = byTitle(row.title, rules, fallback);
+      if (who === undefined || who === row.member_no) continue;   // 指定なし・変化なしは触らない
+      stmts.push(env.DB.prepare("UPDATE entries SET member_no = ? WHERE entry_id = ?")
+        .bind(who === null ? null : who, row.entry_id));
+      retitled++;
+    }
+  }
+
+  if (!stmts.length) return json({ ok: true, removed: 0, retitled: 0 });
+  // 件数の集計は消したあとに数え直す
+  for (const b of blogs) {
+    stmts.push(env.DB.prepare(
+      "UPDATE blogs SET ingested = (SELECT count(*) FROM entries WHERE entries.blog = blogs.blog) WHERE blog = ?"
+    ).bind(b));
+  }
+  for (let i = 0; i < stmts.length; i += 40) await env.DB.batch(stmts.slice(i, i + 40));
+  return json({ ok: true, removed, retitled, statements: stmts.length });
 }
 
 // 取り込み済みの記事に、一覧で読めた日時だけを書き足す(本文は取り直さない)
@@ -679,6 +773,7 @@ async function crawlRoute(request, env, p, ctx) {
       if (route === "POST check") return crawlCheck(request, env);
       if (route === "POST range") return crawlRange(request, env);
       if (route === "POST meta") return crawlMeta(request, env);
+      if (route === "POST fix") return crawlFix(request, env);
       if (route === "POST delete") return crawlDelete(request, env);
       if (route === "POST notify-test") {
         if (!env.DISCORD_WEBHOOK) return json({ error: "DISCORD_WEBHOOK 未設定" }, 400);

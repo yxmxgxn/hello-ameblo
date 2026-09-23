@@ -204,6 +204,66 @@ def html_to_text(s: str) -> str:
 
 # ============================ Worker API ============================
 
+class Fixes:
+    """crawler/fixes.tsv。対応表(スプシ)では決められない記事の扱いを書いたもの。"""
+
+    def __init__(self, path: str):
+        self.theme: dict[tuple[str, str], int | None] = {}
+        self.entry: dict[str, int | None] = {}
+        self.title: dict[str, list[tuple[str, int]]] = {}
+        self.default: dict[str, int | None] = {}
+        if not os.path.exists(path):
+            return
+        for raw in open(path, encoding="utf-8"):
+            line = raw.split("#")[0].strip()
+            if not line:
+                continue
+            f = [x.strip() for x in line.split("\t") if x.strip()]
+            if len(f) < 2:
+                continue
+            kind = f[0]
+            if kind == "theme" and len(f) >= 3 and "/" in f[1]:
+                blog, theme = f[1].split("/", 1)
+                self.theme[(blog, theme)] = None if f[2] == "-" else int(f[2])
+            elif kind == "entry" and len(f) >= 3:
+                self.entry[f[1]] = None if f[2] == "-" else int(f[2])
+            elif kind == "title" and len(f) >= 4:
+                self.title.setdefault(f[1], []).append((f[2].lower(), int(f[3])))
+            elif kind == "default":
+                self.default[f[1]] = None if f[2] == "-" else int(f[2])
+
+    def member(self, blog: str, entry: dict):
+        """(指定あり?, メンバー番号) を返す。メンバー番号 None は「取り込まない/決めない」。"""
+        eid = str(entry["entry_id"])
+        if eid in self.entry:
+            return True, self.entry[eid]
+        key = (blog, str(entry.get("theme_id") or ""))
+        if key in self.theme:
+            return True, self.theme[key]
+        rules = self.title.get(blog)
+        if rules:
+            t = (entry.get("entry_title") or "").lower()
+            best, at, ln = None, -1, 0
+            for k, no in rules:      # 名前が複数あるときは後ろにある方(署名はふつう末尾)
+                i = t.rfind(k)
+                if i > at or (i == at and i >= 0 and len(k) > ln):
+                    if i >= 0:
+                        best, at, ln = no, i, len(k)
+            if best is not None:
+                return True, best
+            if blog in self.default:
+                return True, self.default[blog]
+        return False, None
+
+    def payload(self) -> dict:
+        return {
+            "themes": [{"blog": b, "theme_id": t, "member_no": n} for (b, t), n in self.theme.items()],
+            "entries": [{"entry_id": e, "member_no": n} for e, n in self.entry.items()],
+            "titles": [{"blog": b, "key": k, "member_no": n} for b, rs in self.title.items() for k, n in rs],
+            "defaults": self.default,
+        }
+
+
 def times(e: dict) -> dict:
     """一覧・記事ページにある日時と公開状態。一覧を読むだけで取れるので、全部記録しておく。"""
     return {
@@ -344,9 +404,10 @@ def load_exclude() -> set[str]:
 # ============================ 巡回 ============================
 
 class Crawler:
-    def __init__(self, api: Api, ab: Ameblo, max_fetch: int, deadline: float):
+    def __init__(self, api: Api, ab: Ameblo, max_fetch: int, deadline: float, fixes: "Fixes"):
         self.api = api
         self.ab = ab
+        self.fixes = fixes
         self.max_fetch = max_fetch
         self.deadline = deadline
         self.inserted = 0
@@ -356,12 +417,24 @@ class Crawler:
     def budget_left(self) -> bool:
         return self.ab.fetches < self.max_fetch and time.time() < self.deadline
 
+    def drop(self, blog: str, e: dict) -> bool:
+        """例外指定で「取り込まない」とされている記事か。
+        記事単位・テーマ単位で "-" と書かれたものだけ。タイトルで決まらなかった記事は
+        (書き手を空欄にして)取り込む。"""
+        eid = str(e["entry_id"])
+        if eid in self.fixes.entry:
+            return self.fixes.entry[eid] is None
+        return self.fixes.theme.get((blog, str(e.get("theme_id") or "")), 0) is None
+
     def fetch_entry(self, blog: str, e: dict) -> dict | None:
         """一覧の1件から、本文を取って Worker に送る形にする。記事ページが消えていたら None。"""
         raw = self.ab.entry_body(blog, e["entry_id"])
         if raw is None:
             return None
+        found, who = self.fixes.member(blog, e)
+        item = {"member_no": who} if found else {}
         return {
+            **item,
             "entry_id": str(e["entry_id"]),
             "blog": blog,
             "theme_id": str(e.get("theme_id") or ""),
@@ -378,7 +451,8 @@ class Crawler:
         ids = [str(e["entry_id"]) for e in metas]
         known = set(self.api.call("POST", "/api/crawl/known", {"ids": ids})["known"]) if ids else set()
         # アメンバー限定などの非公開記事は取り込まない(読みたければアメンバーになれば読める)
-        todo = [e for e in metas if str(e["entry_id"]) not in known and e.get("publish_flg") in (None, "open")]
+        todo = [e for e in metas if str(e["entry_id"]) not in known and e.get("publish_flg") in (None, "open")
+                and not self.drop(blog, e)]
         batch = []
         for e in todo:
             if not self.budget_left():
@@ -532,7 +606,8 @@ def main():
 
     api = Api(a.api, a.token)
     ab = Ameblo(a.delay)
-    cr = Crawler(api, ab, a.max_fetch, time.time() + a.minutes * 60)
+    fixes = Fixes(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixes.tsv"))
+    cr = Crawler(api, ab, a.max_fetch, time.time() + a.minutes * 60, fixes)
 
     members, groups, targets = load_targets(a.accounts)
     excluded = load_exclude()
@@ -542,6 +617,9 @@ def main():
     only = set(a.blogs.split(",")) if a.blogs else None
     r = api.call("POST", "/api/crawl/targets", {"members": members, "groups": groups, "targets": targets})
     log(f"対象: メンバー{r['members']}人 / 紐づけ{r['targets']}件 (付け直し {r['remapped']})")
+    if fixes.theme or fixes.entry or fixes.title:
+        r = api.call("POST", "/api/crawl/fix", fixes.payload())
+        log(f"例外指定: 取り込まないテーマ {r.get('removed', 0)} / タイトルで付け直し {r.get('retitled', 0)} 件")
 
     blogs = sorted({t["blog"] for t in targets})
     if only:
