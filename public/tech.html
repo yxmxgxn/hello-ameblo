@@ -87,8 +87,8 @@ CREATE VIRTUAL TABLE entry_fts USING fts5(title, body, content='', contentless_d
 
   <h3>正規化</h3>
   <p>索引を作るときと検索語を処理するとき、完全に同じ関数を通します。</p>
-  <pre><code>const KEEP = /[0-9a-z々〆぀-ヿ㐀-䶿一-鿿]/u;
-const DROP = /[^0-9a-z々〆぀-ヿ㐀-䶿一-鿿]/gu;
+  <pre><code>const KEEP = /[0-9a-z\u3005\u3006\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/u;
+const DROP = /[^0-9a-z\u3005\u3006\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/gu;
 const normalize = (s) =&gt; s.normalize("NFKC").toLowerCase().replace(DROP, "");</code></pre>
   <p>
     NFKC で全角英数と半角カナをそろえ、小文字化し、残すのは
