@@ -120,18 +120,18 @@ entry	12881699944	155	# 2025-01-08 楽しみに！　福田真琳
 # ── スマイレージ サブメンバーの共同ブログ ──
 # テーマが1つしかなく、4人が同じテーマに書いている。タイトルの署名で分ける。
 # 名前が2つ出てくるときは「後ろにある方」を書き手とみなす(署名はふつう末尾のため)。
-title	smileage-submember	竹内朱莉	95
-title	smileage-submember	中西香菜	93
-title	smileage-submember	勝田里奈	96
-title	smileage-submember	田村芽実	97
-title	smileage-submember	asami	95	# 竹内朱莉のローマ字署名
-title	smileage-submember	kana	93	# 中西香菜
-title	smileage-submember	rina	96	# 勝田里奈
-title	smileage-submember	ri na	96	# 勝田里奈(間に空白)
-title	smileage-submember	りな	96	# 勝田里奈
-title	smileage-submember	meimi	97	# 田村芽実
+title	smileage-submember/10041867737	竹内朱莉	95
+title	smileage-submember/10041867737	中西香菜	93
+title	smileage-submember/10041867737	勝田里奈	96
+title	smileage-submember/10041867737	田村芽実	97
+title	smileage-submember/10041867737	asami	95	# 竹内朱莉のローマ字署名
+title	smileage-submember/10041867737	kana	93	# 中西香菜
+title	smileage-submember/10041867737	rina	96	# 勝田里奈
+title	smileage-submember/10041867737	ri na	96	# 勝田里奈(間に空白)
+title	smileage-submember/10041867737	りな	96	# 勝田里奈
+title	smileage-submember/10041867737	meimi	97	# 田村芽実
 # どの署名にも当たらない記事は、誰のものか決めない(空欄のまま)
-default	smileage-submember	-
+default	smileage-submember/10041867737	-
 
 # ───────────────────────────────────────────────
 # ここから下は 2026-09-23 に、グループブログのテーマ付け忘れを1件ずつ確認したもの
@@ -141,11 +141,11 @@ default	smileage-submember	-
 theme	beyooooonds-rfro/10107423101	165	# 前田こころ（3件とも）
 
 # ── アンジュルム アメリカ（記事が多く、取り込みもまだ途中なので署名で分ける） ──
-title	angerme-amerika	中西香菜	93
-title	angerme-amerika	竹内朱莉	95
-title	angerme-amerika	勝田里奈	96
-title	angerme-amerika	田村芽実	97
-default	angerme-amerika	-	# 署名が無い記事は書き手を決めない（書いているのはこの4人だけ）
+title	angerme-amerika/10086858027	中西香菜	93
+title	angerme-amerika/10086858027	竹内朱莉	95
+title	angerme-amerika/10086858027	勝田里奈	96
+title	angerme-amerika/10086858027	田村芽実	97
+default	angerme-amerika/10086858027	-	# 署名が無い記事は書き手を決めない（書いているのはこの4人だけ）
 
 # ── beyooooonds-chicatetsu ──
 entry	12974068138	167	# 2026-07-28 まのゆな〜　西田汐里

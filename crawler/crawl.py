@@ -233,10 +233,12 @@ class Fixes:
                 self.theme[(blog, theme)] = None if f[2] == "-" else int(f[2])
             elif kind == "entry" and len(f) >= 3:
                 self.entry[f[1]] = None if f[2] == "-" else int(f[2])
-            elif kind == "title" and len(f) >= 4:
-                self.title.setdefault(f[1], []).append((f[2].lower(), int(f[3])))
-            elif kind == "default":
-                self.default[f[1]] = None if f[2] == "-" else int(f[2])
+            elif kind == "title" and len(f) >= 4 and "/" in f[1]:
+                blog, theme = f[1].split("/", 1)
+                self.title.setdefault((blog, theme), []).append((f[2].lower(), int(f[3])))
+            elif kind == "default" and "/" in f[1]:
+                blog, theme = f[1].split("/", 1)
+                self.default[(blog, theme)] = None if f[2] == "-" else int(f[2])
 
     def member(self, blog: str, entry: dict):
         """(指定あり?, メンバー番号) を返す。メンバー番号 None は「取り込まない/決めない」。"""
@@ -246,7 +248,7 @@ class Fixes:
         key = (blog, str(entry.get("theme_id") or ""))
         if key in self.theme:
             return True, self.theme[key]
-        rules = self.title.get(blog)
+        rules = self.title.get(key)
         if rules:
             t = (entry.get("entry_title") or "").lower()
             best, at, ln = None, -1, 0
@@ -257,16 +259,17 @@ class Fixes:
                         best, at, ln = no, i, len(k)
             if best is not None:
                 return True, best
-            if blog in self.default:
-                return True, self.default[blog]
+            if key in self.default:
+                return True, self.default[key]
         return False, None
 
     def payload(self) -> dict:
         return {
             "themes": [{"blog": b, "theme_id": t, "member_no": n} for (b, t), n in self.theme.items()],
             "entries": [{"entry_id": e, "member_no": n} for e, n in self.entry.items()],
-            "titles": [{"blog": b, "key": k, "member_no": n} for b, rs in self.title.items() for k, n in rs],
-            "defaults": self.default,
+            "titles": [{"blog": b, "theme_id": t, "key": k, "member_no": n}
+                       for (b, t), rs in self.title.items() for k, n in rs],
+            "defaults": {f"{b}\t{t}": n for (b, t), n in self.default.items()},
         }
 
 

@@ -541,19 +541,23 @@ async function crawlFix(request, env) {
   let retitled = 0;
   const byBlog = new Map();
   for (const r of titles) {
-    if (!byBlog.has(r.blog)) byBlog.set(r.blog, []);
-    byBlog.get(r.blog).push({ key: String(r.key).toLowerCase(), member_no: Number(r.member_no) });
+    const k = `${r.blog}\t${r.theme_id}`;
+    if (!byBlog.has(k)) byBlog.set(k, []);
+    byBlog.get(k).push({ key: String(r.key).toLowerCase(), member_no: Number(r.member_no) });
   }
-  for (const [blog, rules] of byBlog) {
+  for (const [k, rules] of byBlog) {
+    const [blog, theme] = k.split("\t");
     blogs.add(blog);
-    const fallback = blog in defaults ? defaults[blog] : undefined;
-    // そのブログの記事を端から見る。対応表がブログ丸ごとを誰かに割り当てていることがあるので、
-    // 「すでに誰かになっている」記事も調べ直す(変わらなければ何もしない)
+    const fallback = k in defaults ? defaults[k] : undefined;
+    // そのテーマの記事を端から見る。対応表がブログ丸ごとを誰かに割り当てていることがあるので、
+    // 「すでに誰かになっている」記事も調べ直す(変わらなければ何もしない)。
+    // テーマを指定しているのは、ちゃんとテーマが付いている記事まで書き換えないため。
     let from = 0;
     for (let page = 0; page < 30; page++) {
       const { results } = await env.DB.prepare(
-        "SELECT entry_id, title, member_no FROM entries WHERE blog = ? AND entry_id > ? ORDER BY entry_id LIMIT 1000"
-      ).bind(blog, from).all();
+        "SELECT entry_id, title, member_no FROM entries WHERE blog = ? AND theme_id = ? AND entry_id > ? " +
+        "ORDER BY entry_id LIMIT 1000"
+      ).bind(blog, theme, from).all();
       if (!results.length) break;
       for (const row of results) {
         from = row.entry_id;
@@ -566,6 +570,14 @@ async function crawlFix(request, env) {
       if (results.length < 1000) break;
     }
   }
+
+  // 対応表にテーマの割り当てがあるのに空欄になっている記事を埋め直す(取りこぼしの修復)
+  stmts.push(env.DB.prepare(
+    "UPDATE entries SET member_no = (SELECT t.member_no FROM targets t " +
+    "WHERE t.blog = entries.blog AND t.theme_id = entries.theme_id) " +
+    "WHERE member_no IS NULL AND EXISTS (SELECT 1 FROM targets t " +
+    "WHERE t.blog = entries.blog AND t.theme_id = entries.theme_id AND t.member_no IS NOT NULL)"
+  ));
 
   if (!stmts.length) return json({ ok: true, removed: 0, retitled: 0 });
   // 件数の集計は消したあとに数え直す
