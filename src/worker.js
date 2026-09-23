@@ -546,19 +546,24 @@ async function crawlFix(request, env) {
   }
   for (const [blog, rules] of byBlog) {
     blogs.add(blog);
-    const mine = [...new Set(rules.map((r) => r.member_no))];
     const fallback = blog in defaults ? defaults[blog] : undefined;
-    const ph = mine.map(() => "?").join(",");
-    const { results } = await env.DB.prepare(
-      `SELECT entry_id, title, member_no FROM entries WHERE blog = ? ` +
-      `AND (member_no IS NULL OR member_no NOT IN (${ph})) LIMIT 3000`
-    ).bind(blog, ...mine).all();
-    for (const row of results) {
-      const who = byTitle(row.title, rules, fallback);
-      if (who === undefined || who === row.member_no) continue;   // 指定なし・変化なしは触らない
-      stmts.push(env.DB.prepare("UPDATE entries SET member_no = ? WHERE entry_id = ?")
-        .bind(who === null ? null : who, row.entry_id));
-      retitled++;
+    // そのブログの記事を端から見る。対応表がブログ丸ごとを誰かに割り当てていることがあるので、
+    // 「すでに誰かになっている」記事も調べ直す(変わらなければ何もしない)
+    let from = 0;
+    for (let page = 0; page < 30; page++) {
+      const { results } = await env.DB.prepare(
+        "SELECT entry_id, title, member_no FROM entries WHERE blog = ? AND entry_id > ? ORDER BY entry_id LIMIT 1000"
+      ).bind(blog, from).all();
+      if (!results.length) break;
+      for (const row of results) {
+        from = row.entry_id;
+        const who = byTitle(row.title, rules, fallback);
+        if (who === undefined || who === row.member_no) continue;   // 指定なし・変化なしは触らない
+        stmts.push(env.DB.prepare("UPDATE entries SET member_no = ? WHERE entry_id = ?")
+          .bind(who === null ? null : who, row.entry_id));
+        retitled++;
+      }
+      if (results.length < 1000) break;
     }
   }
 
@@ -569,7 +574,7 @@ async function crawlFix(request, env) {
       "UPDATE blogs SET ingested = (SELECT count(*) FROM entries WHERE entries.blog = blogs.blog) WHERE blog = ?"
     ).bind(b));
   }
-  for (let i = 0; i < stmts.length; i += 40) await env.DB.batch(stmts.slice(i, i + 40));
+  for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
   return json({ ok: true, removed, retitled, statements: stmts.length });
 }
 
