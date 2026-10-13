@@ -519,10 +519,11 @@ class Crawler:
             if top is None:
                 top = int(entries[0]["entry_id"])
             new = [e for e in entries if int(e["entry_id"]) > newest]
-            # 1ページ目は newest_id 以下の記事も渡す(取り込み済みかは ingest が見る)。
+            # 読んだページの記事は newest_id 以下でも全部渡す(取り込み済みかは ingest が見る)。
             # 予約投稿は書き始めた時点の番号が付くので、後から公開されると newest_id より小さい番号で
-            # 一覧の先頭に出てくる。番号だけで見ると取りこぼす(2026-10 松原ユリヤで実際に起きた)
-            fresh += entries if page == 1 else new
+            # 一覧の上の方に出てくる。番号だけで見ると取りこぼす(2026-10 松原ユリヤで実際に起きた)。
+            # 読んでいないページに流れたものは、削除チェックの見回り(check_page)で拾う
+            fresh += entries
             if not newest or len(new) < len(entries) or page >= int(paging.get("max_page") or 1):
                 break  # 初回は1ページ目だけ(残りは遡りで拾う)
             page += 1
