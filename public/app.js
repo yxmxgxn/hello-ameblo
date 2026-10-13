@@ -151,6 +151,7 @@
 
   // カレンダーは1人だけ選んでいる時に出す(全員分の集計は重いし、見ても使いどころがない)
   async function loadCalendar() {
+    $("cal-hint").hidden = picked.size === 1;
     if (picked.size !== 1) { calEl.hidden = true; cal = null; return; }
     const base = `/api/calendar?m=${current.m}&b=${encodeURIComponent(current.b)}`;
     const key = `${current.m}@${current.b}`;
