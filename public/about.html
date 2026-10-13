@@ -149,8 +149,7 @@ fetch("/api/members").then((r) => r.json()).then((d) => {
   if (!s.ingested) return;
   const n = (x) => Number(x).toLocaleString("ja-JP");
   document.getElementById("scale").textContent =
-    `いま ${n(s.blogs)} のブログ、${n(s.ingested)} 記事が入っています` +
-    (s.total > s.ingested ? `（全 ${n(s.total)} 記事を順番に取り込み中です）。` : "。");
+    `いま ${n(s.blogs)} のブログ、${n(s.ingested)} 記事が入っています。`;
 }).catch(() => {});
 </script>
 </body>
