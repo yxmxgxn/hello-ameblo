@@ -519,7 +519,10 @@ class Crawler:
             if top is None:
                 top = int(entries[0]["entry_id"])
             new = [e for e in entries if int(e["entry_id"]) > newest]
-            fresh += new
+            # 1ページ目は newest_id 以下の記事も渡す(取り込み済みかは ingest が見る)。
+            # 予約投稿は書き始めた時点の番号が付くので、後から公開されると newest_id より小さい番号で
+            # 一覧の先頭に出てくる。番号だけで見ると取りこぼす(2026-10 松原ユリヤで実際に起きた)
+            fresh += entries if page == 1 else new
             if not newest or len(new) < len(entries) or page >= int(paging.get("max_page") or 1):
                 break  # 初回は1ページ目だけ(残りは遡りで拾う)
             page += 1
@@ -577,6 +580,10 @@ class Crawler:
         if changed:
             log(f"  {blog}: 編集された記事 {len(batch)} 件を取り直し")
             self.edited += len(batch)
+
+        # 一覧に載っているのに取り込んでいない記事(予約投稿で番号が前後したものなど)を拾う
+        if not self.ingest(blog, list(open_entries.values())):
+            return False  # 同じページを次回やり直す
 
         gone = []
         for i in (x for x in stored if x not in listed):
