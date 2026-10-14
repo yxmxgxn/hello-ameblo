@@ -780,6 +780,12 @@ export default {
     const url = new URL(request.url);
     const p = url.pathname;
 
+    // 旧URL(hello-ameblo.*.workers.dev)の画面は新しいドメインへ転送する。
+    // API はクローラ(GitHub の CRAWL_API)がこちらを使っているので転送しない
+    if (url.hostname.endsWith(".workers.dev") && !p.startsWith("/api/")) {
+      return Response.redirect(`https://ameblo.karin-archive.com${p}${url.search}`, 301);
+    }
+
     // 公開API: 同一IPからの叩きすぎを止める(workers.dev では WAF が使えないので Worker 側で)
     if (p.startsWith("/api/") && !p.startsWith("/api/crawl/") && env.RL) {
       const ip = request.headers.get("cf-connecting-ip") || "unknown";

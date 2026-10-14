@@ -5,8 +5,9 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    // Worker を通すのは API だけ。画面(静的ファイル)は Worker を通さず配信する
-    "run_worker_first": ["/api/*"]
+    // すべて Worker を通す。旧URL(workers.dev)で開かれた画面を ameblo.karin-archive.com へ転送するため
+    // (src/worker.js の fetch の先頭)。転送をやめるなら ["/api/*"] に戻せば、静的ファイルは Worker を通らない
+    "run_worker_first": true
   },
   // 毎時7分に GitHub Actions のクロールを起動する(src/worker.js の scheduled)
   "triggers": {
