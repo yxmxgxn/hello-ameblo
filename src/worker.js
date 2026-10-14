@@ -257,23 +257,113 @@ async function handleSearch(url, env) {
   }, 200, "public, max-age=300");
 }
 
-// 削除・公開停止の依頼(about のフォーム)。D1 に残して Discord に知らせる
-async function handleTakedown(request, env) {
+// 削除・公開停止の依頼(about のフォーム)。D1 に残して Discord に知らせる。
+// karin-archive のフィードバック(worker/index.js の handleFeedback)と同じ作り:
+// IP は日付とソルトを混ぜたハッシュだけ残し、同じ人の連投を数える。管理ページで対応済みを付ける
+const TD_RATE_MIN = 10;     // レート制限の窓(分)
+const TD_RATE_MAX = 5;      // 窓あたりの上限件数
+const TD_LIST_LIMIT = 200;  // 管理ページに出す件数
+
+async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function handleTakedown(request, env, ctx) {
   let b;
   try { b = await request.json(); } catch { return json({ error: "bad" }, 400); }
   if (b.website) return json({ ok: true });   // 人には見えない欄。埋まっていたら機械の送信なので黙って捨てる
   const cut = (s, n) => String(s || "").trim().slice(0, n);
   const target = cut(b.target, 300), contact = cut(b.contact, 200), message = cut(b.message, 2000);
   if (!target) return json({ error: "target" }, 400);
-  await env.DB.prepare("INSERT INTO takedown (target, contact, message, created_at) VALUES (?, ?, ?, ?)")
-    .bind(target, contact || null, message || null, now()).run();
+
+  const ip = request.headers.get("cf-connecting-ip") || "";
+  const today = new Date().toISOString().slice(0, 10);
+  const ipHash = await sha256Hex(`${env.TAKEDOWN_SALT || "hello-ameblo"}:${today}:${ip}`);
+  const since = new Date(Date.now() - TD_RATE_MIN * 60000).toISOString();
+  const cnt = await env.DB.prepare("SELECT count(*) AS n FROM takedown WHERE ip_hash = ? AND created_at > ?")
+    .bind(ipHash, since).first();
+  if ((cnt?.n || 0) >= TD_RATE_MAX) return json({ error: "rate" }, 429);
+
+  const ua = (request.headers.get("user-agent") || "").slice(0, 300);
+  const r = await env.DB.prepare(
+    "INSERT INTO takedown (target, contact, message, user_agent, ip_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(target, contact || null, message || null, ua, ipHash, now()).run();
   if (env.DISCORD_WEBHOOK) {
-    await notifyDiscord(env, "削除・公開停止の依頼",
+    ctx.waitUntil(notifyDiscord(env, `削除・公開停止の依頼 #${r.meta.last_row_id}`,
       `対象: ${target}
 連絡先: ${contact || "(なし)"}
-${message || ""}`).catch(() => {});
+${message || ""}`).catch(() => {}));
   }
-  return json({ ok: true });
+  return json({ ok: true, id: r.meta.last_row_id });
+}
+
+// 管理ページ /_takedown?t=<TAKEDOWN_TOKEN>。トークンが合わなければ 404(存在自体を隠す)
+async function handleTakedownAdmin(url, request, env) {
+  const expected = (env.TAKEDOWN_TOKEN || "").trim();
+  const token = (url.searchParams.get("t") || "").trim();
+  if (!expected || token !== expected) return new Response("Not found", { status: 404 });
+
+  if (request.method === "POST") {
+    const form = await request.formData();
+    const id = Number(form.get("id"));
+    const action = String(form.get("action") || "");
+    if (Number.isInteger(id) && id > 0) {
+      if (action === "delete") await env.DB.prepare("DELETE FROM takedown WHERE id = ?").bind(id).run();
+      else if (action === "done" || action === "undo") {
+        await env.DB.prepare("UPDATE takedown SET done = ? WHERE id = ?").bind(action === "done" ? 1 : 0, id).run();
+      }
+    }
+    return new Response(null, { status: 303, headers: { location: `${url.pathname}?t=${encodeURIComponent(token)}` } });
+  }
+
+  const { results: rows } = await env.DB.prepare(
+    "SELECT id, target, contact, message, user_agent, ip_hash, done, created_at FROM takedown " +
+    "ORDER BY done ASC, created_at DESC LIMIT ?"
+  ).bind(TD_LIST_LIMIT).all();
+  const q = encodeURIComponent(token);
+  const items = rows.map((r) => `
+    <li class="${r.done ? "done" : "open"}">
+      <div class="meta"><b>#${r.id}</b><time>${esc(r.created_at)}</time>
+        <span title="${esc(r.user_agent)}">送信元 ${esc((r.ip_hash || "").slice(0, 8))}</span></div>
+      <p><b>対象:</b> ${esc(r.target)}</p>
+      ${r.contact ? `<p><b>連絡先:</b> ${esc(r.contact)}</p>` : ""}
+      ${r.message ? `<p>${esc(r.message)}</p>` : ""}
+      <form method="post" action="?t=${q}">
+        <input type="hidden" name="id" value="${r.id}">
+        <button name="action" value="${r.done ? "undo" : "done"}">${r.done ? "未対応に戻す" : "対応済みにする"}</button>
+        <button name="action" value="delete" onclick="return confirm('削除しますか？')">削除</button>
+      </form>
+    </li>`).join("");
+  const open = rows.filter((r) => !r.done).length;
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>削除依頼 (${open})</title>
+<style>
+:root{--accent:#2d8c3c}
+body{font-family:system-ui,sans-serif;max-width:760px;margin:0 auto;padding:16px;color:#333;line-height:1.7;background:#fff}
+h1{font-size:18px;border-bottom:2px solid var(--accent);padding-bottom:8px}
+ul{list-style:none;padding:0}
+li{border:1px solid #ddd;border-radius:6px;padding:12px;margin-bottom:12px}
+li.open{border-left:4px solid var(--accent);background:#f6faf6}
+li.done{opacity:.55}
+.meta{font-size:12px;color:#666;display:flex;gap:12px;flex-wrap:wrap}
+.meta b{color:var(--accent)}
+p{white-space:pre-wrap;word-break:break-word;margin:6px 0}
+button{font-size:12px;padding:4px 10px;margin-right:6px;cursor:pointer;border:1px solid #bbb;border-radius:4px;background:#fff;color:#333;font-weight:400}
+</style></head><body>
+<h1>削除・公開停止の依頼 — 未対応 ${open} / 全 ${rows.length}</h1>
+${rows.length ? `<ul>${items}</ul>` : "<p>まだ何も届いていません。</p>"}
+</body></html>`;
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" },
+  });
 }
 
 // 日ごとの一覧(/day): その日に投稿された記事を全部返す。本文は返さない。
@@ -910,7 +1000,8 @@ export default {
     if (p === "/api/members" && request.method === "GET") return cached(request, ctx, () => handleMembers(env));
     if (p === "/api/calendar" && request.method === "GET") return cached(request, ctx, () => handleCalendar(url, env));
     if (p === "/api/day" && request.method === "GET") return cached(request, ctx, () => handleDay(url, env));
-    if (p === "/api/takedown" && request.method === "POST") return handleTakedown(request, env);
+    if (p === "/api/takedown" && request.method === "POST") return handleTakedown(request, env, ctx);
+    if (p === "/_takedown") return handleTakedownAdmin(url, request, env);
 
     if (p.startsWith("/api/crawl/")) {
       if (!authorized(request, env)) return new Response("Not found", { status: 404 });

@@ -106,5 +106,8 @@ CREATE TABLE IF NOT EXISTS takedown (
   target     TEXT NOT NULL,              -- ブログID か記事URL
   contact    TEXT,                       -- 返事が欲しい人だけ(任意)
   message    TEXT,                       -- 任意
+  user_agent TEXT,
+  ip_hash    TEXT,                       -- 日付とソルトを混ぜたIPのハッシュ。IPそのものは残さない(同じ人の連投を数えるため)
+  done       INTEGER NOT NULL DEFAULT 0,  -- 対応済みなら1(管理ページ /_takedown で付ける)
   created_at TEXT NOT NULL
 );
