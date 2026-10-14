@@ -44,7 +44,7 @@ MEMBERS_CSV = (
     "2PACX-1vQFLNyFnLg0oxCm_39mnbRCwttmKUKffQk7_nAZxeydw41KBaFHTR9TqHsHvYvcsZ5Bgl1fQlBPCs0Q/pub"
     "?gid=837040930&single=true&output=csv"
 )
-UA = "Mozilla/5.0 (compatible; hello-ameblo-crawler/0.1; +https://hello-ameblo.yxmxgxn.workers.dev/)"
+UA = "Mozilla/5.0 (compatible; hello-ameblo-crawler/0.1; +https://ameblo.karin-archive.com/)"
 PER_PAGE = 20
 POST_BATCH = 20
 

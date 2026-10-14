@@ -9,7 +9,7 @@ README.md が「何がどこにあるか」なのに対して、こちらは「�
 
 ## 0. 最初に読む3行
 
-- 公開URL: https://hello-ameblo.yxmxgxn.workers.dev （2026-10-12 公開。合言葉・noindex を外した）
+- 公開URL: https://ameblo.karin-archive.com （2026-10-14 からカスタムドメイン。hello-ameblo.yxmxgxn.workers.dev でも開ける。2026-10-12 公開。合言葉・noindex を外した）
 - リポジトリ: このリポジトリ（GitHub: yxmxgxn/hello-ameblo）。**karin-archive とは別の Worker・別リポジトリ**
 - クロールは毎時7分に自動で回っている。**触らなくても動く**。壊れたときだけ直す
 
