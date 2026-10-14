@@ -21,6 +21,8 @@
  *   POST /api/crawl/delete     アメブロ側で消えた記事を削除
  *   POST /api/crawl/notify-test  Discord 通知のテスト送信
  *
+ * 定期実行: 毎日 JST 20時台に収録件数・増加数・新着を Discord へ知らせる(dailyReport)。
+ *
  * それ以外は静的アセット(public/)へ。
  */
 
@@ -769,11 +771,72 @@ async function checkStalled(env) {
     "GitHub の Actions（Crawl）と、Worker の GH_TOKEN の期限を確認してください。");
 }
 
+// 毎日 JST 20時台(毎時の cron のうち UTC 11時の回)に、収録件数・前回からの増加数・新着を知らせる。
+// 増加数には過去分の遡りで入った記事も含む。新着は「前回の報告以降に取り込んだ」かつ「投稿が直近3日以内」
+// (遡りで入った古い記事を除くため。編集されて入れ直した最近の記事も載る)。
+const REPORT_LIST_MAX = 30;
+const SITE = "https://ameblo.karin-archive.com";
+
+async function dailyReport(env) {
+  if (!env.DISCORD_WEBHOOK) return;
+  const [{ results: tot }, { results: prev }] = await env.DB.batch([
+    env.DB.prepare("SELECT count(*) AS n FROM entries"),
+    env.DB.prepare("SELECT k, v FROM state WHERE k IN ('report_at', 'report_total')"),
+  ]);
+  const total = tot[0].n;
+  const m = Object.fromEntries(prev.map((r) => [r.k, r.v]));
+  const at = now();
+  const since = m.report_at || new Date(Date.now() - 24 * 3600e3).toISOString();   // 初回は24時間前から
+  const diff = m.report_total == null ? null : total - Number(m.report_total);
+  const jst = (ms) => new Date(ms + 9 * 3600e3).toISOString().slice(0, 16);
+
+  const { results: fresh } = await env.DB.prepare(
+    "SELECT e.entry_id, e.blog, e.title, e.published, ifnull(mb.name, e.blog) AS name FROM entries e " +
+    "LEFT JOIN members mb ON mb.member_no = e.member_no " +
+    "WHERE e.fetched_at > ? AND e.published >= ? ORDER BY e.published"
+  ).bind(since, jst(Date.now() - 3 * 24 * 3600e3)).all();
+
+  const md = (s) => String(s || "").replace(/[\[\]]/g, "");
+  const lines = fresh.slice(0, REPORT_LIST_MAX).map((r) =>
+    `${(r.published || "").slice(5, 16).replace("-", "/").replace("T", " ")} **${md(r.name)}** ` +
+    `[${md(r.title || "（無題）").slice(0, 40)}](https://ameblo.jp/${r.blog}/entry-${r.entry_id}.html)`);
+  if (fresh.length > REPORT_LIST_MAX) lines.push(`ほか ${fresh.length - REPORT_LIST_MAX} 件は[サイト](${SITE}/)で`);
+
+  const span = `${jst(Date.parse(since)).slice(5).replace("-", "/").replace("T", " ")} 〜 ` +
+    `${jst(Date.parse(at)).slice(5).replace("-", "/").replace("T", " ")}`;
+  const head = `収録 **${total.toLocaleString()}** 件` +
+    (diff == null ? "" : `（前回から ${diff >= 0 ? "+" : ""}${diff.toLocaleString()}）`) +
+    `\n新着 **${fresh.length}** 件（${span}）`;
+
+  const res = await fetch(env.DISCORD_WEBHOOK, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      username: "アメブロ検索",
+      embeds: [{
+        title: "今日のアメブロ",
+        url: SITE + "/",
+        description: (head + (lines.length ? "\n\n" + lines.join("\n") : "")).slice(0, 4000),
+        color: 0x2d8c3c,
+      }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Discord ${res.status}`);
+
+  await env.DB.batch([
+    env.DB.prepare("INSERT OR REPLACE INTO state (k, v) VALUES ('report_at', ?)").bind(at),
+    env.DB.prepare("INSERT OR REPLACE INTO state (k, v) VALUES ('report_total', ?)").bind(String(total)),
+  ]);
+}
+
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(dispatchCrawl(env));
     ctx.waitUntil(checkStalled(env).catch((e) => console.log("停止チェック失敗", String(e))));
     ctx.waitUntil(reportUnassigned(env).catch((e) => console.log("テーマ無しの報告に失敗", String(e))));
+    if (new Date(event.scheduledTime).getUTCHours() === 11) {   // JST 20時台
+      ctx.waitUntil(dailyReport(env).catch((e) => console.log("毎日の報告に失敗", String(e))));
+    }
   },
 
   async fetch(request, env, ctx) {
