@@ -257,6 +257,25 @@ async function handleSearch(url, env) {
   }, 200, "public, max-age=300");
 }
 
+// 削除・公開停止の依頼(about のフォーム)。D1 に残して Discord に知らせる
+async function handleTakedown(request, env) {
+  let b;
+  try { b = await request.json(); } catch { return json({ error: "bad" }, 400); }
+  if (b.website) return json({ ok: true });   // 人には見えない欄。埋まっていたら機械の送信なので黙って捨てる
+  const cut = (s, n) => String(s || "").trim().slice(0, n);
+  const target = cut(b.target, 300), contact = cut(b.contact, 200), message = cut(b.message, 2000);
+  if (!target) return json({ error: "target" }, 400);
+  await env.DB.prepare("INSERT INTO takedown (target, contact, message, created_at) VALUES (?, ?, ?, ?)")
+    .bind(target, contact || null, message || null, now()).run();
+  if (env.DISCORD_WEBHOOK) {
+    await notifyDiscord(env, "削除・公開停止の依頼",
+      `対象: ${target}
+連絡先: ${contact || "(なし)"}
+${message || ""}`).catch(() => {});
+  }
+  return json({ ok: true });
+}
+
 // 日ごとの一覧(/day): その日に投稿された記事を全部返す。本文は返さない。
 // グループでの絞り込みは画面側で /api/members のグループ情報と突き合わせて行う
 const DAY_MAX = 1000;
@@ -891,6 +910,7 @@ export default {
     if (p === "/api/members" && request.method === "GET") return cached(request, ctx, () => handleMembers(env));
     if (p === "/api/calendar" && request.method === "GET") return cached(request, ctx, () => handleCalendar(url, env));
     if (p === "/api/day" && request.method === "GET") return cached(request, ctx, () => handleDay(url, env));
+    if (p === "/api/takedown" && request.method === "POST") return handleTakedown(request, env);
 
     if (p.startsWith("/api/crawl/")) {
       if (!authorized(request, env)) return new Response("Not found", { status: 404 });

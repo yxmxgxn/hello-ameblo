@@ -135,7 +135,22 @@
   <p>
     <strong>Ameba（株式会社サイバーエージェント）・ご本人・所属事務所から連絡があれば、確認のうえ速やかに記事の削除、またはサイトの公開停止をします。</strong>
     そのほかの方からの「消してほしい・載せないでほしい」というご連絡にも対応します。
-    ご連絡は、<a href="https://karin-archive.com/">karin-archive</a>（同じ作者のサイト）のページ下にある「誤りの報告・追加のご要望」から送ってください。匿名で送れます。
+    ご連絡は、下のフォームから送ってください。ブログのIDか記事のURLだけで送れます。
+    返事が必要な場合は、連絡先も書いてください（返事のためだけに使います）。
+  </p>
+  <form id="td" class="td" autocomplete="off">
+    <label>ブログのID または 記事のURL（必須）
+      <input name="target" required maxlength="300" placeholder="例: angerme-new / https://ameblo.jp/…/entry-….html"></label>
+    <label>連絡先（任意・メールアドレスなど）
+      <input name="contact" maxlength="200"></label>
+    <label>ひとこと（任意）
+      <textarea name="message" rows="3" maxlength="2000"></textarea></label>
+    <input name="website" class="hp" tabindex="-1" aria-hidden="true">
+    <button type="submit">送る</button>
+    <p id="td-msg" class="note" aria-live="polite"></p>
+  </form>
+  <p class="note">
+    記事の誤りや追加のご要望は、<a href="https://karin-archive.com/">karin-archive</a>（同じ作者のサイト）のページ下にある「誤りの報告・追加のご要望」からどうぞ。
   </p>
 
   <h2>仕組みについて</h2>
@@ -151,6 +166,28 @@
 </footer>
 
 <script>
+<script>
+// 削除・公開停止の依頼
+document.getElementById("td").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, msg = document.getElementById("td-msg"), btn = f.querySelector("button");
+  btn.disabled = true;
+  msg.textContent = "送信中…";
+  try {
+    const r = await fetch("/api/takedown", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(Object.fromEntries(new FormData(f))),
+    });
+    if (!r.ok) throw new Error(r.status === 429 ? "短い間に送りすぎです。少し待ってから" : String(r.status));
+    f.reset();
+    msg.textContent = "受け付けました。確認のうえ対応します。";
+  } catch (err) {
+    msg.textContent = "送れませんでした（" + err.message + "）。時間をおいてもう一度お試しください。";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // 収録件数は増えていくので、その時の数を出す
 fetch("/api/members").then((r) => r.json()).then((d) => {
   const s = d.stats || {};

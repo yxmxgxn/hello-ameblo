@@ -99,3 +99,12 @@ CREATE TABLE IF NOT EXISTS member_meta (
   groups    TEXT,
   active    INTEGER NOT NULL DEFAULT 0   -- ハロプロ現役なら1
 );
+
+-- 削除・公開停止の依頼(about のフォーム)。送られたら Discord にも知らせる
+CREATE TABLE IF NOT EXISTS takedown (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  target     TEXT NOT NULL,              -- ブログID か記事URL
+  contact    TEXT,                       -- 返事が欲しい人だけ(任意)
+  message    TEXT,                       -- 任意
+  created_at TEXT NOT NULL
+);

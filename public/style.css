@@ -331,3 +331,16 @@ main.wide, .site-head.wide, .site-foot.wide { max-width: 1040px; }
   .gitem { width: auto; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; }
   .gitem.on { border-color: var(--accent); }
 }
+
+/* ---------- 削除・公開停止の依頼フォーム(about) ---------- */
+.td { display: grid; gap: 10px; margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.td label { display: grid; gap: 4px; font-size: .88rem; color: var(--muted); }
+.td input, .td textarea {
+  font: inherit; font-size: 1rem; color: var(--text); padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+}
+.td input:focus, .td textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.td button { justify-self: start; }
+.td button:disabled { opacity: .5; }
+.td .note { margin: 0; }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
