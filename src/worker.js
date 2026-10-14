@@ -257,6 +257,37 @@ async function handleSearch(url, env) {
   }, 200, "public, max-age=300");
 }
 
+// 日ごとの一覧(/day): その日に投稿された記事を全部返す。本文は返さない。
+// グループでの絞り込みは画面側で /api/members のグループ情報と突き合わせて行う
+const DAY_MAX = 1000;
+async function handleDay(url, env) {
+  const d = url.searchParams.get("d") || "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return json({ error: "date" }, 400);
+  const { results } = await env.DB.prepare(
+    "SELECT e.entry_id, e.blog, e.title, e.published, e.theme_id, e.theme_name, e.member_no, " +
+    "mb.name AS member, b.title AS blog_title FROM entries e " +
+    "LEFT JOIN members mb ON mb.member_no = e.member_no LEFT JOIN blogs b ON b.blog = e.blog " +
+    "WHERE e.published >= ? AND e.published < ? ORDER BY e.published DESC LIMIT ?"
+  ).bind(d, d + "~", DAY_MAX + 1).all();
+  const rows = results.slice(0, DAY_MAX).map((r) => ({
+    id: String(r.entry_id),
+    url: entryUrl(r.blog, r.entry_id),
+    title: r.title || "(無題)",
+    time: (r.published || "").slice(11, 16),
+    member_no: r.member_no,
+    member: r.member || null,
+    blog: r.blog,
+    blog_title: shortTitle(r.blog_title) || r.blog,
+    blog_url: `https://ameblo.jp/${r.blog}/`,
+    theme: r.theme_name || null,
+    theme_url: r.theme_id ? `https://ameblo.jp/${r.blog}/theme-${r.theme_id}.html` : null,
+  }));
+  // 今日(日本時間)の分は新着が増えるので短く、過ぎた日は長くキャッシュする
+  const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  return json({ d, results: rows, truncated: results.length > DAY_MAX }, 200,
+    d >= today ? "public, max-age=300" : "public, max-age=3600");
+}
+
 // 日付で見る: メンバー(・ブログ)の月ごとの件数と、ym を渡せばその月の日ごとの件数
 async function handleCalendar(url, env) {
   const m = parseInt(url.searchParams.get("m") || "", 10);
@@ -859,6 +890,7 @@ export default {
     if (p === "/api/search" && request.method === "GET") return cached(request, ctx, () => handleSearch(url, env));
     if (p === "/api/members" && request.method === "GET") return cached(request, ctx, () => handleMembers(env));
     if (p === "/api/calendar" && request.method === "GET") return cached(request, ctx, () => handleCalendar(url, env));
+    if (p === "/api/day" && request.method === "GET") return cached(request, ctx, () => handleDay(url, env));
 
     if (p.startsWith("/api/crawl/")) {
       if (!authorized(request, env)) return new Response("Not found", { status: 404 });

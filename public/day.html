@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="only light">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2d8c3c">
+<title>日付で見る - アメブロ検索</title>
+<meta name="description" content="ハロー！プロジェクトのメンバーがその日に書いたアメブロを、グループごとに一覧で。日付を選ぶと過去の日も見られます。">
+<meta property="og:title" content="日付で見る - アメブロ検索">
+<meta property="og:description" content="ハロー！プロジェクトのメンバーがその日に書いたアメブロを、グループごとに一覧で。日付を選ぶと過去の日も見られます。">
+<meta property="og:type" content="website">
+<link rel="canonical" href="https://ameblo.karin-archive.com/day">
+<meta property="og:url" content="https://ameblo.karin-archive.com/day">
+<meta property="og:image" content="https://ameblo.karin-archive.com/ogp.png">
+<meta property="og:site_name" content="アメブロ検索">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-head wide">
+  <h1><a href="/">アメブロ検索</a></h1>
+  <p class="lead">その日に書かれたブログを一覧で。</p>
+  <p class="lead sec"><a href="/">本文から探す</a> ｜ <a href="/about">このサイトについて</a></p>
+</header>
+
+<main class="wide">
+  <form id="dayform" class="daybar" autocomplete="off">
+    <button id="prev" type="button" class="ghost" aria-label="前の日">◀</button>
+    <input id="date" type="date" aria-label="日付">
+    <button id="next" type="button" class="ghost" aria-label="次の日">▶</button>
+    <button id="today" type="button" class="ghost">今日</button>
+  </form>
+
+  <div class="daygrid">
+    <nav id="gnav" class="gnav" aria-label="グループで絞る"></nav>
+    <section>
+      <p id="status" class="status" aria-live="polite"></p>
+      <ol id="results" class="results"></ol>
+    </section>
+  </div>
+</main>
+
+<footer class="site-foot wide">
+  <p><a href="/">本文から探す</a> ｜ <a href="/about">このサイトについて</a></p>
+  <p>本文はこのサイトには表示しません。記事は Ameba ブログ（ameblo.jp）でお読みください。</p>
+</footer>
+
+<script src="/day.js"></script>
+</body>
+</html>
