@@ -179,8 +179,10 @@ document.getElementById("td").addEventListener("submit", async (e) => {
       body: JSON.stringify(Object.fromEntries(new FormData(f))),
     });
     if (!r.ok) throw new Error(r.status === 429 ? "短い間に送りすぎです。少し待ってから" : String(r.status));
+    const d = await r.json().catch(() => ({}));
     f.reset();
-    msg.textContent = "受け付けました。確認のうえ対応します。";
+    msg.textContent = "受け付けました" + (d.id ? `（受付番号 #${d.id}）` : "") + "。確認のうえ対応します。" +
+      (d.id ? "あとでお問い合わせいただくときのために、必要ならこの番号を控えておいてください。" : "");
   } catch (err) {
     msg.textContent = "送れませんでした（" + err.message + "）。時間をおいてもう一度お試しください。";
   } finally {
