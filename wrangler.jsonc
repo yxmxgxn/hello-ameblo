@@ -1,5 +1,5 @@
 {
-  "name": "ameblo-search",
+  "name": "hello-ameblo",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-01",
   "assets": {
@@ -21,9 +21,9 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ameblo-search",
-      // ダッシュボード → ストレージとデータベース → D1 → ameblo-search(karin-archive と同じアカウント)
-      "database_id": "f34033ab-4b0f-44d3-87cb-0259ef7c2de7"
+      "database_name": "hello-ameblo",
+      // ダッシュボード → ストレージとデータベース → D1 → hello-ameblo (APAC)
+      "database_id": "92c4802b-5049-46bb-b464-a9b51fb7138b"
     }
   ]
 }

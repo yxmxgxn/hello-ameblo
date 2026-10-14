@@ -1,5 +1,5 @@
 -- アメブロ検索 D1 スキーマ
--- 適用: wrangler d1 execute ameblo-search --remote --file schema.sql
+-- 適用: wrangler d1 execute hello-ameblo --remote --file schema.sql
 --
 -- 本文はここ(D1)にだけ持つ。サイトには全文を出さず、検索結果の前後数十字だけ返して
 -- 元記事(ameblo.jp)へ飛ばす。
