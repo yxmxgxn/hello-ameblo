@@ -28,22 +28,26 @@
   };
 
   const NONE = "none";   // 書き手が決まっていない記事(スタッフ投稿など)
-  let groups = [], groupsOf = new Map();   // member_no → [group_no]
+  const OG = "og";       // 卒業したメンバーは元のグループではなく「OG」にまとめる
+  let groups = [], groupsOf = new Map();   // member_no → [group_no](現役のみ)
+  const ogs = new Set();                   // 卒業したメンバーの member_no
   let day = "", rows = [], pick = "";      // pick: "" = すべて / group_no / NONE
   let seq = 0;
 
   const inPick = (r) => {
     if (!pick) return true;
     if (pick === NONE) return r.member_no == null;
+    if (pick === OG) return ogs.has(r.member_no);
     return (groupsOf.get(r.member_no) || []).includes(Number(pick));
   };
 
   function drawNav() {
     gnav.textContent = "";
     const count = new Map();
-    let none = 0;
+    let none = 0, og = 0;
     for (const r of rows) {
       if (r.member_no == null) { none++; continue; }
+      if (ogs.has(r.member_no)) { og++; continue; }
       for (const g of groupsOf.get(r.member_no) || []) count.set(g, (count.get(g) || 0) + 1);
     }
     const item = (key, name, n) => el("button", {
@@ -54,6 +58,7 @@
     gnav.append(item("", "すべて", rows.length));
     // その日に記事があるグループだけ、グループ番号順に出す
     for (const g of groups) if (count.get(g.no)) gnav.append(item(String(g.no), g.name, count.get(g.no)));
+    if (og) gnav.append(item(OG, "OG", og));
     if (none) gnav.append(item(NONE, "書き手不明", none));
   }
 
@@ -70,7 +75,7 @@
         el("h2", {}, el("a", { href: r.url, target: "_blank", rel: "noopener" }, r.title)),
         meta));
     }
-    const name = !pick ? "" : pick === NONE ? "書き手不明・" : `${(groups.find((g) => String(g.no) === pick) || {}).name}・`;
+    const name = !pick ? "" : pick === NONE ? "書き手不明・" : pick === OG ? "OG・" : `${(groups.find((g) => String(g.no) === pick) || {}).name}・`;
     statusEl.textContent = rows.length
       ? `${label(day)}　${name}${shown.length} 件`
       : `${label(day)}　この日の記事はありません`;
@@ -126,6 +131,9 @@
   // グループ情報(メンバー→所属グループ)を先に読んでから一覧を出す
   fetch("/api/members").then((r) => r.json()).then((d) => {
     groups = (d.groups || []).map((g) => ({ no: g.no ?? g.group_no, name: g.name }));
-    for (const m of d.members || []) groupsOf.set(m.no, m.groups || []);
+    for (const m of d.members || []) {
+      if (m.active) groupsOf.set(m.no, m.groups || []);
+      else ogs.add(m.no);
+    }
   }).catch(() => {}).finally(() => load(fromUrl(), false));
 })();
