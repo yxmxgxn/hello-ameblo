@@ -808,6 +808,45 @@ export default {
   },
 };
 
+/* ============ アカウント移行用(2026-10。移行が済んだら消す) ============ */
+// 古い Worker から読み出して新しい Worker に書き込む。アメブロには一切アクセスしない。
+// 検索索引(entry_fts)は D1 の export で出せないので、書き込む側で bigram から作り直す。
+const MIGRATE_TABLES = {
+  entries: "entry_id", members: "member_no", groups: "group_no", member_meta: "member_no",
+  targets: null, blogs: null, checks: null, state: null,
+};
+
+async function crawlExport(request, env) {
+  const { table, after = 0, limit = 200 } = await request.json();
+  if (!(table in MIGRATE_TABLES)) return json({ error: "table" }, 400);
+  const key = MIGRATE_TABLES[table];
+  const stmt = key
+    ? env.DB.prepare(`SELECT * FROM ${table} WHERE ${key} > ? ORDER BY ${key} LIMIT ?`).bind(after, Math.min(limit, 500))
+    : env.DB.prepare(`SELECT * FROM ${table}`);
+  const { results } = await stmt.all();
+  return json({ rows: results, last: key && results.length ? results[results.length - 1][key] : null });
+}
+
+async function crawlImport(request, env) {
+  const { table, rows = [] } = await request.json();
+  if (!(table in MIGRATE_TABLES)) return json({ error: "table" }, 400);
+  if (!rows.length) return json({ ok: true, n: 0 });
+  const cols = Object.keys(rows[0]);
+  if (!cols.every((c) => /^[a-z_]+$/.test(c))) return json({ error: "cols" }, 400);
+  const ins = `INSERT OR REPLACE INTO ${table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`;
+  const stmts = [];
+  for (const r of rows) {
+    if (table === "entries") stmts.push(env.DB.prepare("DELETE FROM entry_fts WHERE rowid = ?").bind(r.entry_id));
+    stmts.push(env.DB.prepare(ins).bind(...cols.map((c) => r[c])));
+    if (table === "entries") {
+      stmts.push(env.DB.prepare("INSERT INTO entry_fts (rowid, title, body) VALUES (?, ?, ?)")
+        .bind(r.entry_id, bigramText(r.title), bigramText(r.body)));
+    }
+  }
+  await env.DB.batch(stmts);
+  return json({ ok: true, n: rows.length });
+}
+
 async function crawlRoute(request, env, p, ctx) {
   {
     {
@@ -824,6 +863,8 @@ async function crawlRoute(request, env, p, ctx) {
       if (route === "POST meta") return crawlMeta(request, env);
       if (route === "POST fix") return crawlFix(request, env);
       if (route === "POST delete") return crawlDelete(request, env);
+      if (route === "POST export") return crawlExport(request, env);
+      if (route === "POST import") return crawlImport(request, env);
       if (route === "POST notify-test") {
         if (!env.DISCORD_WEBHOOK) return json({ error: "DISCORD_WEBHOOK 未設定" }, 400);
         await notifyDiscord(env, "通知のテスト", "クロールが止まったときは、ここにこの形で届きます。");
