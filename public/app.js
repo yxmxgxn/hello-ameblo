@@ -412,7 +412,8 @@
     drawPanel();
     queueSearch();
   });
-  moreBtn.addEventListener("click", () => run(true));
+  // 続きが無いのに押されたら何もしない(cursor 無しで読むと先頭のページを足してしまう)
+  moreBtn.addEventListener("click", () => { if (cursor) run(true); });
   $("period-x").addEventListener("click", () => { current.d = ""; search(true, true); });
   window.addEventListener("popstate", fromUrl);
 

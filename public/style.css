@@ -253,6 +253,7 @@ select {
 .locked { font-size: .82rem; color: var(--muted); }
 
 .more { display: block; margin: 8px auto 24px; background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.more[hidden] { display: none; }   /* 上の display: block が hidden 属性に勝ってしまうため */
 
 
 /* ---- about / tech ページ ---- */
