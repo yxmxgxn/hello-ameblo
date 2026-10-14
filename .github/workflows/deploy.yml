@@ -23,7 +23,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '4'
-          command: d1 execute hello-ameblo --remote --file schema.sql
+          command: d1 execute ameblo-search --remote --file schema.sql
 
       # 既存テーブルへの列追加。2回目以降は「列がある」で失敗するのでエラーは無視する
       - name: Add columns
@@ -33,7 +33,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '4'
-          command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN edited TEXT"
+          command: d1 execute ameblo-search --remote --command "ALTER TABLE entries ADD COLUMN edited TEXT"
 
       - name: Add column ins_datetime
         continue-on-error: true
@@ -42,7 +42,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '4'
-          command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN ins_datetime TEXT"
+          command: d1 execute ameblo-search --remote --command "ALTER TABLE entries ADD COLUMN ins_datetime TEXT"
 
       - name: Add column upd_datetime
         continue-on-error: true
@@ -51,7 +51,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '4'
-          command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN upd_datetime TEXT"
+          command: d1 execute ameblo-search --remote --command "ALTER TABLE entries ADD COLUMN upd_datetime TEXT"
 
       - name: Add column publish_flg
         continue-on-error: true
@@ -60,7 +60,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '4'
-          command: d1 execute hello-ameblo --remote --command "ALTER TABLE entries ADD COLUMN publish_flg TEXT"
+          command: d1 execute ameblo-search --remote --command "ALTER TABLE entries ADD COLUMN publish_flg TEXT"
 
       - name: Add column members.kana
         continue-on-error: true
@@ -69,7 +69,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '4'
-          command: d1 execute hello-ameblo --remote --command "ALTER TABLE members ADD COLUMN kana TEXT"
+          command: d1 execute ameblo-search --remote --command "ALTER TABLE members ADD COLUMN kana TEXT"
 
       - name: Create table state
         continue-on-error: true
@@ -78,7 +78,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '4'
-          command: d1 execute hello-ameblo --remote --command "CREATE TABLE IF NOT EXISTS state (k TEXT PRIMARY KEY, v TEXT)"
+          command: d1 execute ameblo-search --remote --command "CREATE TABLE IF NOT EXISTS state (k TEXT PRIMARY KEY, v TEXT)"
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
