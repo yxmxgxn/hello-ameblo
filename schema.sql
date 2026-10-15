@@ -100,6 +100,16 @@ CREATE TABLE IF NOT EXISTS member_meta (
   active    INTEGER NOT NULL DEFAULT 0   -- ハロプロ現役なら1
 );
 
+-- メンバーごとに、記事があるブログ(取り込み済みの記事から数える)。
+-- 対応表(targets)だけだと、例外指定(fixes.tsv)で割り当てたブログが漏れるので、こちらも見る。
+-- クロールのたびに /api/crawl/fix の最後で作り直す
+CREATE TABLE IF NOT EXISTS member_blogs (
+  member_no INTEGER NOT NULL,
+  blog      TEXT NOT NULL,
+  n         INTEGER NOT NULL,
+  PRIMARY KEY (member_no, blog)
+);
+
 -- 削除・公開停止の依頼(about のフォーム)。送られたら Discord にも知らせる
 CREATE TABLE IF NOT EXISTS takedown (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

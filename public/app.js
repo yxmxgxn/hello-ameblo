@@ -248,6 +248,8 @@
     }
     // 1人だけ選んでいて、その人がブログを複数持つならブログ別に絞れるようにする
     const s = solo();
+    // URL などで来たブログがその人のものでなければ外す(検索は全ブログになるので、URL からも消す)
+    if (blogPick && !(s && s.blogs.some((b) => b.id === blogPick))) blogPick = "";
     if (s && s.blogs.length > 1) {
       const sel = el("select", {
         "aria-label": "ブログ",

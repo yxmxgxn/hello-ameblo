@@ -437,7 +437,9 @@ async function handleMembers(env) {
   const [{ results: rows }, { results: stats }, { results: groups }] = await env.DB.batch([
     env.DB.prepare(
       "SELECT DISTINCT mb.member_no, mb.name, mb.kana, mm.groups, mm.active, t.blog, b.title, b.newest_id FROM members mb " +
-      "JOIN targets t ON t.member_no = mb.member_no LEFT JOIN blogs b ON b.blog = t.blog " +
+      // 対応表のブログに、例外指定で記事が入ったブログ(member_blogs)も足す
+      "JOIN (SELECT member_no, blog FROM targets UNION SELECT member_no, blog FROM member_blogs) t " +
+      "ON t.member_no = mb.member_no LEFT JOIN blogs b ON b.blog = t.blog " +
       "LEFT JOIN member_meta mm ON mm.member_no = mb.member_no " +
       "ORDER BY mb.member_no, b.newest_id DESC"
     ),
@@ -742,6 +744,12 @@ async function crawlFix(request, env) {
       "UPDATE blogs SET ingested = (SELECT count(*) FROM entries WHERE entries.blog = blogs.blog) WHERE blog = ?"
     ).bind(b));
   }
+  // メンバーごとの「記事があるブログ」を作り直す(画面のブログ選択に使う)
+  stmts.push(env.DB.prepare("DELETE FROM member_blogs"));
+  stmts.push(env.DB.prepare(
+    "INSERT INTO member_blogs (member_no, blog, n) " +
+    "SELECT member_no, blog, count(*) FROM entries WHERE member_no IS NOT NULL GROUP BY member_no, blog"
+  ));
   for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
   return json({ ok: true, removed, retitled, statements: stmts.length });
 }
