@@ -134,12 +134,12 @@
       el("time", {}, r.date),
       // ブログのトップと、その人のテーマ(グループブログの中の個人ページ)へ飛べるようにする
       r.blog_title !== r.member
-        ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener" }, r.blog_title)
+        ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener noreferrer" }, r.blog_title)
         : null,
-      r.theme_url ? el("a", { href: r.theme_url, target: "_blank", rel: "noopener" }, `テーマ: ${r.theme}`) : null);
+      r.theme_url ? el("a", { href: r.theme_url, target: "_blank", rel: "noopener noreferrer" }, `テーマ: ${r.theme}`) : null);
 
     const li = el("li", {},
-      el("h2", {}, el("a", { href: r.url, target: "_blank", rel: "noopener" }, r.title)),
+      el("h2", {}, el("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, r.title)),
       meta);
 
     for (const s of r.snippets) {
