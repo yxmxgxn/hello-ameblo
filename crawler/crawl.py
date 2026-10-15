@@ -63,6 +63,7 @@ class Ameblo:
         self.fetches = 0
         self._last = 0.0
         self.last_status = 0  # 直前のリクエストのHTTPステータス(通信エラーは0)
+        self.noindex: dict[str, bool] = {}  # ブログ → 一覧ページに noindex が付いていたか
 
     def get(self, url: str, tries: int = 3) -> str | None:
         for n in range(tries):
@@ -105,7 +106,12 @@ class Ameblo:
     def entry_list(self, blog: str, page: int):
         """(記事の一覧[新しい順], paging, ブログ名) を返す。取れなければ None。"""
         suf = "" if page == 1 else f"-{page}"
-        d = self.init_data(self.get(f"https://ameblo.jp/{blog}/entrylist{suf}.html"))
+        html = self.get(f"https://ameblo.jp/{blog}/entrylist{suf}.html")
+        # ブロガーが「検索エンジンに載せない」にしているか(<meta name="robots" content="…noindex…">)
+        if html:
+            self.noindex[blog] = any("noindex" in t.lower()
+                                     for t in re.findall(r"<meta\s[^>]*>", html) if 'name="robots"' in t)
+        d = self.init_data(html)
         if not d:
             return None
         es = d.get("entryState", {})
@@ -447,6 +453,7 @@ class Crawler:
         self.inserted = 0
         self.deleted = 0
         self.edited = 0
+        self.skip: set[str] = set()   # 今回の実行で取り込まないと分かったブログ(noindex)
 
     def budget_left(self) -> bool:
         return self.ab.fetches < self.max_fetch and time.time() < self.deadline
@@ -517,6 +524,12 @@ class Crawler:
         page, top, fresh, title, total = 1, None, [], None, None
         while self.budget_left():
             got = self.ab.entry_list(blog, page)
+            if page == 1 and self.ab.noindex.get(blog):
+                # 検索エンジンに載せないと本人が決めているブログは取り込まない。取り込み済みの分も消す
+                r = self.api.call("POST", "/api/crawl/purge", {"blog": blog})
+                log(f"  {blog}: noindex のため取り込まない(削除 {r.get('deleted', 0)} 件)")
+                self.skip.add(blog)
+                return
             if got is None:
                 log(f"  {blog}: 一覧が取れない(削除/非公開?)")
                 return
@@ -684,6 +697,8 @@ def main():
             if not cr.budget_left():
                 break
             cr.update_new(b, state.setdefault(b, {"blog": b}))
+
+        blogs = [b for b in blogs if b not in cr.skip]
 
         # 削除チェック: 取り込み済みのブログを1ページずつ順番に
         checks = {c["blog"]: c for c in api.call("GET", "/api/crawl/checks")["checks"]}

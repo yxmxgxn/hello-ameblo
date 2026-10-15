@@ -28,7 +28,7 @@
 
 const MAX_Q = 100;          // クエリ長の上限
 const MAX_TERMS = 5;        // 空白区切りの語数上限
-const PAGE = 20;            // 1回に返す件数
+const PAGE = 100;           // 1回に返す件数
 const CTX = 40;             // スニペットの前後文字数
 const MAX_SNIPPETS = 2;     // 1記事あたりのスニペット数
 const INGEST_MAX = 50;      // 1リクエストで取り込む記事数の上限
@@ -176,7 +176,10 @@ async function handleSearch(url, env) {
   const d = /^\d{4}(-\d{2}(-\d{2})?)?$/.test(dRaw) ? dRaw : "";
   const act = url.searchParams.get("act") === "1";
   const asc = url.searchParams.get("order") === "old";
-  const cursor = parseInt(url.searchParams.get("cursor") || "", 10);
+  // 続きの位置。語ありは記事ID、語なしは「公開日時~記事ID」
+  const cursorRaw = url.searchParams.get("cursor") || "";
+  const cursor = parseInt(cursorRaw, 10);
+  const [cPub, cId] = cursorRaw.includes("~") ? [cursorRaw.slice(0, cursorRaw.lastIndexOf("~")), parseInt(cursorRaw.slice(cursorRaw.lastIndexOf("~") + 1), 10)] : ["", NaN];
 
   // 文字数は見た目の1文字(絵文字も1)で数える
   if ([...q.trim()].length > MAX_Q) return json({ error: "long", max: MAX_Q, results: [], next: null });
@@ -219,13 +222,19 @@ async function handleSearch(url, env) {
     sql = `SELECT ${cols} FROM entry_fts JOIN entries e ON e.entry_id = entry_fts.rowid ${joins} ` +
       `WHERE ${where.join(" AND ")} ORDER BY entry_fts.rowid ${asc ? "ASC" : "DESC"} LIMIT ?`;
   } else {
-    // 語なし: 絞り込みに合う記事を新しい順に並べる(新着一覧・カレンダーから日を選んだ時もこれ)
+    // 語なし: 絞り込みに合う記事を公開日時の順に並べる(新着一覧・カレンダーから日を選んだ時もこれ)。
+    // 記事IDは書き始めた時点で付くので、予約投稿があると公開日時の順とずれる
     narrow();
     if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
-    if (Number.isFinite(cursor)) { where.push(`e.entry_id ${asc ? ">" : "<"} ?`); binds.push(cursor); }
+    if (cPub && Number.isFinite(cId)) {
+      const op = asc ? ">" : "<";
+      where.push(`(e.published ${op} ? OR (e.published = ? AND e.entry_id ${op} ?))`);
+      binds.push(cPub, cPub, cId);
+    }
+    const dir = asc ? "ASC" : "DESC";
     sql = `SELECT ${cols} FROM entries e ${joins} ` +
       (where.length ? `WHERE ${where.join(" AND ")} ` : "") +
-      `ORDER BY e.entry_id ${asc ? "ASC" : "DESC"} LIMIT ?`;
+      `ORDER BY e.published ${dir}, e.entry_id ${dir} LIMIT ?`;
   }
   binds.push(PAGE + 1);
 
@@ -237,7 +246,16 @@ async function handleSearch(url, env) {
   }
 
   const more = results.length > PAGE;
-  const rows = results.slice(0, PAGE).map((r) => ({
+  const page = results.slice(0, PAGE);
+  // 続きの位置は並べ替える前に決める(語ありは記事ID順に読んでいるので、その最後の記事ID)
+  const last = page[page.length - 1];
+  const next = !more ? null : built ? String(last.entry_id) : `${last.published}~${last.entry_id}`;
+  // 語ありは記事ID順に100件読んで、その中を公開日時で並べ替える(全ヒットを公開日時で並べると重すぎるため)
+  if (built) {
+    const k = (r) => `${r.published || ""}~${String(r.entry_id).padStart(20, "0")}`;
+    page.sort((a, b) => (asc ? 1 : -1) * (k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0));
+  }
+  const rows = page.map((r) => ({
     id: String(r.entry_id),
     url: entryUrl(r.blog, r.entry_id),
     title: r.title || "(無題)",
@@ -253,7 +271,7 @@ async function handleSearch(url, env) {
   }));
   return json({
     results: rows,
-    next: more ? rows[rows.length - 1].id : null,
+    next,
     terms: built ? built.terms : [],
   }, 200, "public, max-age=300");
 }
