@@ -744,12 +744,17 @@ async function crawlFix(request, env) {
       "UPDATE blogs SET ingested = (SELECT count(*) FROM entries WHERE entries.blog = blogs.blog) WHERE blog = ?"
     ).bind(b));
   }
-  // メンバーごとの「記事があるブログ」を作り直す(画面のブログ選択に使う)
+  // メンバーごとの「対応表の外で記事が入るブログ」を作り直す(画面のブログ選択に使う)。
+  // entries を集計すると本文ごと全行を読むことになり D1 が時間切れになる(2026-10-15 に実際に落ちた)ので、
+  // 例外指定(テーマ・タイトル)に書いてある「ブログ × メンバー」の組から作る
+  const pairs = new Set();
+  for (const t of themes) if (t.member_no !== null) pairs.add(`${Number(t.member_no)}\t${t.blog}`);
+  for (const r of titles) pairs.add(`${Number(r.member_no)}\t${r.blog}`);
   stmts.push(env.DB.prepare("DELETE FROM member_blogs"));
-  stmts.push(env.DB.prepare(
-    "INSERT INTO member_blogs (member_no, blog, n) " +
-    "SELECT member_no, blog, count(*) FROM entries WHERE member_no IS NOT NULL GROUP BY member_no, blog"
-  ));
+  for (const p of pairs) {
+    const [no, blog] = p.split("\t");
+    stmts.push(env.DB.prepare("INSERT OR IGNORE INTO member_blogs (member_no, blog, n) VALUES (?, ?, 0)").bind(Number(no), blog));
+  }
   for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
   return json({ ok: true, removed, retitled, statements: stmts.length });
 }
