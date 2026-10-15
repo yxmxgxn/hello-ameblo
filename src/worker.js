@@ -638,7 +638,7 @@ function byTitle(title, rules, fallback) {
 
 // crawler/fixes.tsv の例外指定を、取り込み済みの記事に反映する
 async function crawlFix(request, env) {
-  const { themes = [], entries = [], titles = [], defaults = {} } = await request.json();
+  const { themes = [], entries = [], titles = [], defaults = {}, only = [] } = await request.json();
   const stmts = [];
   const blogs = new Set();
   let removed = 0;
@@ -656,6 +656,20 @@ async function crawlFix(request, env) {
       stmts.push(env.DB.prepare("UPDATE entries SET member_no = ? WHERE blog = ? AND theme_id = ? AND member_no IS NOT ?")
         .bind(t.member_no, t.blog, String(t.theme_id), t.member_no));
     }
+  }
+
+  // only: そのブログは指定したテーマだけ取り込む。ほかのテーマの記事は消す
+  for (const o of only) {
+    const ts = (o.themes || []).map(String);
+    if (!ts.length) continue;
+    blogs.add(o.blog);
+    const ph = ts.map(() => "?").join(",");
+    stmts.push(env.DB.prepare(
+      `DELETE FROM entry_fts WHERE rowid IN (SELECT entry_id FROM entries WHERE blog = ? AND coalesce(theme_id, '') NOT IN (${ph}))`
+    ).bind(o.blog, ...ts));
+    stmts.push(env.DB.prepare(`DELETE FROM entries WHERE blog = ? AND coalesce(theme_id, '') NOT IN (${ph})`)
+      .bind(o.blog, ...ts));
+    removed++;
   }
 
   const del = entries.filter((e) => e.member_no === null).map((e) => Number(e.entry_id));

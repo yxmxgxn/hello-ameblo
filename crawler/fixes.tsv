@@ -5,6 +5,7 @@
 #   theme  <ブログ>/<テーマ番号>  -                そのテーマは取り込まない(取り込み済みは消す)
 #   entry  <記事番号>             <メンバー番号>   その記事をこの人のものにする
 #   entry  <記事番号>             -                その記事は取り込まない(取り込み済みは消す)
+#   only   <ブログ>/<テーマ番号>                   そのブログはこのテーマだけ取り込む(ほかのテーマは消す)
 #
 # テーマ全体が1人に対応するなら、ここではなく SNSスプシの ameblo_g 行に書く(そちらが本筋)。
 # ここに書くのは、スプシの仕組みでは表せないものだけ。
@@ -15,6 +16,9 @@ theme	lovendor-blog/10067402590	-	# Gt：魚住 有希（約563件）
 theme	lovendor-blog/10067402595	-	# Gt：宮澤 茉凛（約572件）
 theme	lovendor-blog/10067221796	-	# スタッフ（約76件）
 theme	lovendor-blog/10096600059	-	# メンバー一同より（約1件）
+
+# ── bmifamilyclub: 田村芽実の個人ブログではなくグループのブログ。本人のテーマだけ取り込む ──
+only	bmifamilyclub/10118550480	# 田村芽実
 
 # ── BEYOOOOONDS: このテーマの記事はすべて杉山結菜だった（2026-09-23 確認） ──
 theme	beyooooonds-blog/10122325173	194	# 杉山結菜
@@ -124,7 +128,7 @@ title	smileage-submember/10041867737	竹内朱莉	95
 title	smileage-submember/10041867737	中西香菜	93
 title	smileage-submember/10041867737	勝田里奈	96
 title	smileage-submember/10041867737	田村芽実	97
-title	smileage-submember/10041867737	asami	95	# 竹内朱莉のローマ字署名
+title	smileage-submember/10041867737	akari	95	# 竹内朱莉のローマ字署名
 title	smileage-submember/10041867737	kana	93	# 中西香菜
 title	smileage-submember/10041867737	rina	96	# 勝田里奈
 title	smileage-submember/10041867737	ri na	96	# 勝田里奈(間に空白)

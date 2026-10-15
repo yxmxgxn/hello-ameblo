@@ -218,6 +218,7 @@ class Fixes:
         self.entry: dict[str, int | None] = {}
         self.title: dict[str, list[tuple[str, int]]] = {}
         self.default: dict[str, int | None] = {}
+        self.only: dict[str, set[str]] = {}   # ブログ → 取り込むテーマ(ここに無いテーマは取り込まない)
         if not os.path.exists(path):
             return
         for raw in open(path, encoding="utf-8"):
@@ -236,6 +237,9 @@ class Fixes:
             elif kind == "title" and len(f) >= 4 and "/" in f[1]:
                 blog, theme = f[1].split("/", 1)
                 self.title.setdefault((blog, theme), []).append((f[2].lower(), int(f[3])))
+            elif kind == "only" and "/" in f[1]:
+                blog, theme = f[1].split("/", 1)
+                self.only.setdefault(blog, set()).add(theme)
             elif kind == "default" and "/" in f[1]:
                 blog, theme = f[1].split("/", 1)
                 self.default[(blog, theme)] = None if f[2] == "-" else int(f[2])
@@ -270,6 +274,7 @@ class Fixes:
             "titles": [{"blog": b, "theme_id": t, "key": k, "member_no": n}
                        for (b, t), rs in self.title.items() for k, n in rs],
             "defaults": {f"{b}\t{t}": n for (b, t), n in self.default.items()},
+            "only": [{"blog": b, "themes": sorted(ts)} for b, ts in self.only.items()],
         }
 
 
@@ -453,6 +458,9 @@ class Crawler:
         eid = str(e["entry_id"])
         if eid in self.fixes.entry:
             return self.fixes.entry[eid] is None
+        keep = self.fixes.only.get(blog)
+        if keep is not None and str(e.get("theme_id") or "") not in keep:
+            return True
         return self.fixes.theme.get((blog, str(e.get("theme_id") or "")), 0) is None
 
     def fetch_entry(self, blog: str, e: dict) -> dict | None:
@@ -658,7 +666,7 @@ def main():
     only = set(a.blogs.split(",")) if a.blogs else None
     r = api.call("POST", "/api/crawl/targets", {"members": members, "groups": groups, "targets": targets})
     log(f"対象: メンバー{r['members']}人 / 紐づけ{r['targets']}件 (付け直し {r['remapped']})")
-    if fixes.theme or fixes.entry or fixes.title:
+    if fixes.theme or fixes.entry or fixes.title or fixes.only:
         r = api.call("POST", "/api/crawl/fix", fixes.payload())
         log(f"例外指定: 取り込まないテーマ {r.get('removed', 0)} / タイトルで付け直し {r.get('retitled', 0)} 件")
 
