@@ -346,3 +346,6 @@ main.wide, .site-head.wide, .site-foot.wide { max-width: 1040px; }
 .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 
 .status .ghost.inline { margin-left: 8px; padding: 2px 10px; }
+
+.bsec summary { cursor: pointer; font-size: .85rem; color: var(--muted); padding: 2px 0; }
+.bsec[open] summary { margin-bottom: 8px; }

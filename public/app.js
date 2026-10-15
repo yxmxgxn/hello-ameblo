@@ -395,6 +395,8 @@
       }, b.name));
     }
     if (!blogs.length) blist.append(el("span", { class: "none" }, "該当なし"));
+    // ブログだけで絞っている時と、名前で探している時は開いておく。それ以外は畳んでおく
+    if (!picked.size && blogPick || q) $("bsec").open = true;
 
     // グループに絞っている時だけ、見えている人をまとめて選べる
     const allBtn = $("pick-all");
@@ -490,7 +492,13 @@
     search(false, true);
   }
 
-  form.addEventListener("submit", (e) => { e.preventDefault(); search(true, true); });
+  // 検索したらメンバー選択のパネルは畳む(結果を見せるため)
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    panel.hidden = true;
+    openBtn.setAttribute("aria-expanded", "false");
+    search(true, true);
+  });
   // 検索語を消しきったら、その場で検索語なしの表示(選んでいるメンバーの新着)に戻す
   qEl.addEventListener("input", () => {
     if (!qEl.value.trim() && current && current.q) search(true, true);
