@@ -8,13 +8,13 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#2d8c3c">
-<title>アメブロ検索</title>
-<meta name="description" content="ハロー！プロジェクトのメンバーのアメブロを本文と日付から探せる。メンバーで絞り込み、一致した箇所の前後を見て元記事へ。">
-<meta property="og:title" content="アメブロ検索">
-<meta property="og:description" content="ハロー！プロジェクトのメンバーのアメブロを本文と日付から探せる。メンバーで絞り込み、一致した箇所の前後を見て元記事へ。">
+<title>このサイトについて - アメブロ検索</title>
+<meta name="description" content="アメブロ検索の説明書。何ができて、何を収録していて、何を表示しないのか。ハロー！プロジェクトのメンバーのアメブロを本文から探すための非公式サイトです。">
+<meta property="og:title" content="このサイトについて - アメブロ検索">
+<meta property="og:description" content="アメブロ検索の説明書。何ができて、何を収録していて、何を表示しないのか。ハロー！プロジェクトのメンバーのアメブロを本文から探すための非公式サイトです。">
 <meta property="og:type" content="website">
-<link rel="canonical" href="https://ameblo.karin-archive.com/">
-<meta property="og:url" content="https://ameblo.karin-archive.com/">
+<link rel="canonical" href="https://ameblo.karin-archive.com/about">
+<meta property="og:url" content="https://ameblo.karin-archive.com/about">
 <meta property="og:image" content="https://ameblo.karin-archive.com/ogp.png">
 <meta property="og:site_name" content="アメブロ検索">
 <meta name="twitter:card" content="summary_large_image">
@@ -26,74 +26,250 @@
 <body>
 <header class="site-head">
   <h1><a href="/">アメブロ検索</a></h1>
-  <p class="lead">ハロプロメンバーのアメブロを、本文から探せます。</p>
-  <p class="lead sec"><a href="/day">日付で見る</a> ｜ <a href="/about.html">このサイトについて</a></p>
+  <p class="lead">このサイトについて</p>
 </header>
 
-<main>
-  <form id="f" class="search" role="search" autocomplete="off">
-    <div class="q-row">
-      <input id="q" name="q" type="search" placeholder="本文から探す（空のままなら新着）" aria-label="検索語" enterkeyhint="search">
-      <button type="submit">検索</button>
-    </div>
+<main class="doc">
+  <p class="doc-lead">
+    ハロー！プロジェクトのメンバーが書いているアメブロを、<strong>本文から</strong>探せるようにしたサイトです。
+    アメブロの検索で探せるのは1つのブログの中だけですが、ここでは<strong>収録しているブログを横断して</strong>探せます。
+    アメブロでできなくなった<strong>日付からたどる</strong>こともできます。
+    <span id="scale"></span>
+  </p>
 
-    <div class="opts">
-      <button id="pick-open" class="pick-open" type="button" aria-expanded="false" aria-controls="panel">
-        <span id="pick-label">メンバー選択</span>
-      </button>
-      <label class="chk"><input id="act" type="checkbox" checked>ハロプロ現役のみ</label>
-      <label>並び
-        <select id="order" name="order">
-          <option value="">新しい順</option>
-          <option value="old">古い順</option>
-        </select>
-      </label>
-    </div>
+  <h2>できること</h2>
 
-    <div id="chips" class="chips" hidden></div>
+  <h3>新着を眺める</h3>
+  <p>
+    トップページは検索していない状態だと、収録しているブログ全部の新着が新しい順に並びます。
+    その日に投稿された記事には <span class="new">NEW</span> が付きます。
+    続きは一番下の「もっと見る」で読み込みます。
+  </p>
 
-    <!-- メンバー選択パネル。グループを押すと下の一覧がそのグループの人だけになる(選ぶのは「全員選ぶ」か個別に) -->
-    <div id="panel" class="panel" hidden>
-      <div class="panel-h">
-        <input id="msearch" type="search" placeholder="名前で絞る" aria-label="メンバーを名前で絞る">
-        <button id="pick-sort" type="button" class="ghost" aria-pressed="false">あいうえお順</button>
-        <button id="pick-clear" type="button" class="ghost">すべて外す</button>
-        <button id="pick-close" type="button" class="ghost">閉じる</button>
-      </div>
-      <div class="panel-sec">
-        <h3>グループで絞る</h3>
-        <div id="glist" class="taglist"></div>
-      </div>
-      <div class="panel-sec">
-        <div class="sec-h">
-          <h3>メンバー <span id="mcount" class="cnt"></span></h3>
-          <button id="pick-all" type="button" class="ghost" hidden></button>
-        </div>
-        <div id="mlist" class="taglist"></div>
-      </div>
-    </div>
+  <h3>本文から探す</h3>
+  <p>
+    検索欄に単語を入れると、本文にその単語が入っている記事が出てきます。
+    空白で区切ると「全部入っている記事」に絞られます（<em>りんご 飴</em> なら両方入っているもの）。
+    漢字は1文字でも探せますが、ひらがな・カタカナ・英数字は2文字以上必要です。
+    全角・半角、英字の大文字・小文字は区別しません。記号や絵文字は無視します。
+    検索欄を空にすると、検索する前の一覧に戻ります。
+    並びは「新しい順」と「古い順」を切り替えられます。
+  </p>
 
-    <p class="hint">空白で区切ると「全部含む」記事を探します。検索語を入れずにメンバーだけ選ぶと、その人たちの記事が新しい順に並びます。</p>
+  <h3>メンバーで絞る</h3>
+  <p>
+    「メンバー選択」を開くと、グループとメンバーがタグで並びます。<strong>何人でも選べます。</strong>
+    グループのタグを押すと、下のメンバー一覧がそのグループの人だけになります。
+    そこから好きな人を選び、別のグループに切り替えても、選んだ人はそのまま残ります。
+    そのグループの全員をまとめて選ぶときは「全員選ぶ」を押してください。
+  </p>
+  <p>
+    初期状態は<strong>ハロプロ現役のみ</strong>です。卒業したメンバーの記事も読みたいときは、
+    チェックを外すと選べるようになります。名前で絞り込んだり、「あいうえお順」に並べ替えたりもできます。
+  </p>
+  <p>
+    1人だけ選んだとき、その人がブログを複数持っていれば（個人ブログとグループブログなど）、ブログごとにも絞れます。
+  </p>
+  <p class="note">
+    グループをまたいで活動したメンバーは、どちらのグループにも出てきます。
+  </p>
+
+  <h3>日付で見る</h3>
+  <p>
+    メンバーを1人だけ選ぶと、年×月の表が出ます。濃い月ほど投稿が多い月です。
+    月を押すとカレンダーになり、日を押すとその日の記事だけが並びます。
+    検索語と組み合わせることもできます。指定した期間は「×」で外せます。
+  </p>
+
+  <h3>その日のブログを一覧で見る</h3>
+  <p>
+    <a href="/day">日ごとの一覧</a>では、選んだ日に書かれたブログが一覧で並びます。
+    日付を選んで押すと表示されます（開いただけでは何も出ません）。グループで絞り込むこともできます。
+    並ぶのはタイトル・時刻・書いた人だけで、本文は出しません。トップページと見せ方が違うだけです。
+  </p>
+
+  <h2>誰のブログを収録しているか</h2>
+  <p>
+    <strong>ハロー！プロジェクトにいたことがある人</strong>が、アメブロで自分の名前を出して書いているブログを収録しています。
+  </p>
+  <ul>
+    <li>ハロプロ現役のメンバーのブログ</li>
+    <li>ハロプロにいたころに書いていたブログ（スマイレージや℃-uteのころのブログなど）</li>
+    <li>ハロプロを卒業したあとも、そのまま続いているブログ</li>
+    <li>ハロプロを卒業したあと、ほかの事務所に移ってから書き始めたブログ</li>
+  </ul>
+  <p>
+    ハロプロを離れたあとも、名前を出して仕事を続け、アメブロという開かれた場所に書いている人を対象にしています。
+    所属している事務所がどこかは問いません。
+    芸能活動をやめたあとに書き始めたブログは収録していません。
+  </p>
+
+  <h3>収録している人</h3>
+  <p><strong>ハロプロ現役のメンバー</strong>と、次の人たちです（ハロプロに入った順）。</p>
+  <p class="names">
+    中澤裕子、石黒彩、飯田圭織、福田明日香、保田圭、矢口真里、市井紗耶香、後藤真希、石川梨華、辻希美、加護亜依、
+    高橋愛、紺野あさ美、小川麻琴、新垣里沙、藤本美貴、道重さゆみ、田中れいな、久住小春、飯窪春菜、石田亜佑美、
+    佐藤優樹、小林梓、里田まい、大谷雅恵、嗣永桃子、徳永千奈美、須藤茉麻、夏焼雅、熊井友理奈、菅谷梨沙子、
+    梅田えりか、矢島舞美、中島早貴、鈴木愛理、和田彩花、勝田里奈、田村芽実、宮崎由加、金澤朋子、大塚愛菜、
+    宮本佳林、植村あかり、稲場愛香、小関舞、山岸理子、島倉りか
+  </p>
+
+  <h2>収録しているもの</h2>
+  <ul>
+    <li>個人ブログと、グループブログのそのメンバーのテーマの記事</li>
+    <li>記事のタイトル・投稿日時・テーマ</li>
+    <li><strong>本文のテキスト</strong>（検索と、検索結果に一致した箇所の前後を出すために、このサイトのデータベースに保存しています。画面に全文を出すことはありません）</li>
+  </ul>
+
+  <h2>収録していないもの</h2>
+  <ul>
+    <li>アメンバー限定記事（そもそも取りに行きません）</li>
+    <li><strong>画像・動画は一切保存していません</strong></li>
+    <li>リンクを貼ったときに出るカード（OGPカード）や、X・Instagram の埋め込みは、
+      検索の邪魔になるので本文から外しています</li>
+    <li>スタッフが書いた記事など、誰の記事か決められないもの</li>
+  </ul>
+
+  <h2>本文を全部は表示しません</h2>
+  <p>
+    検索でヒットしても、このサイトに出るのは<strong>一致した箇所の前後だけ</strong>です。
+    記事はアメブロで読むものなので、続きは元の記事へのリンクから読んでください。
+    本文を丸ごと置き換えるつもりはありません。
+  </p>
+  <p>
+    検索結果や新着一覧に出る抜粋は、Google などの検索エンジンに載らないようにしています。
+    抜粋はページを開いたあとに読み込んでいて、その読み込み先を検索エンジンが読めないように設定しています。
+  </p>
+
+  <h2>AIの使い方</h2>
+  <p>
+    このサイトのプログラムは、AIに手伝ってもらって書きました。
+    ただし、集めた記事の本文をAIに読ませたり、要約させたり、学習に使ったりすることは<strong>していません</strong>。
+    グループブログで誰の記事かは、タイトルの署名を手がかりにプログラムが振り分けています。それで決められなかった記事は、作者が自分で読んで決めています。
+    検索もAIではなく、入力した文字が本文に並んでいるかどうかで探しています。
+  </p>
+
+  <h2>検索した言葉は記録していません</h2>
+  <p>
+    何を検索したか、誰がどのメンバーで絞り込んだかは、このサイトでは保存していません。
+    アクセス解析のツールも入れていません。
+  </p>
+
+  <h2>アメブロには迷惑をかけないようにしています</h2>
+  <p>
+    記事を取りに行くのは<strong>1秒に1回まで</strong>です。急ぎません。
+    巡回するときは、巡回プログラムであることと、このサイトのアドレスを名乗っています。
+  </p>
+  <p>
+    いまは、新着の記事を取ることと、記事が消えたり直されたりしたのを反映するために記事一覧を見回ることだけをしています。
+    記事一覧のページを1回読めば20件分の情報が分かるので、記事を1本ずつ開くのは、新しい記事・直された記事・消えたかもしれない記事だけです。
+  </p>
+
+  <h2>記事が消えたとき・直されたとき</h2>
+  <p>
+    書いた人が記事を消したら、このサイトからも消します。
+    アメブロの一覧から記事が見えなくなったとき、その記事だけを確かめに行き、
+    <strong>「もう無い」とはっきり分かったときだけ</strong>消します。
+    通信が不安定だった、サーバーが重かった、というときは消さずに次回まわしにします。
+  </p>
+  <p>
+    記事が書き直されていたら、こちらの本文も取り直して上書きします。
+    一通り見直すのに数日かかるので、消した直後・直した直後にすぐ反映されるわけではありません。
+  </p>
+
+  <h2>このサイトについて</h2>
+  <p>
+    ハロー！プロジェクトおよび Ameba ブログとは関係のない、<strong>個人が作った非公式のサイト</strong>です。
+    記事の著作権は書いた本人にあります。
+  </p>
+  <p>
+    <strong>Ameba（株式会社サイバーエージェント）・ご本人・所属事務所から連絡があれば、確認のうえ速やかに記事の削除、またはサイトの公開停止をします。</strong>
+    そのほかの方からの「消してほしい・載せないでほしい」というご連絡にも対応します。
+    ご連絡は、下のフォームから送ってください。ブログのIDか記事のURLだけで送れます。
+    返事が必要な場合は、連絡先も書いてください（返事のためだけに使います）。
+  </p>
+  <form id="td" class="td" autocomplete="off">
+    <label>ブログのID または 記事のURL（必須）
+      <input name="target" required maxlength="300" placeholder="例: angerme-new / https://ameblo.jp/…/entry-….html"></label>
+    <label>連絡先（任意・メールアドレスなど）
+      <input name="contact" maxlength="200"></label>
+    <label>ひとこと（任意）
+      <textarea name="message" rows="3" maxlength="2000"></textarea></label>
+    <input name="website" class="hp" tabindex="-1" aria-hidden="true">
+    <button type="submit">送る</button>
+    <p id="td-msg" class="note" aria-live="polite"></p>
   </form>
+  <p class="note">
+    記事の誤りや追加のご要望は、<a href="https://karin-archive.com/">karin-archive</a>（同じ作者のサイト）のページ下にある「誤りの報告・追加のご要望」からどうぞ。
+  </p>
 
-  <p id="cal-hint" class="hint">メンバーを1人選ぶと、日付で見られます。</p>
-  <section id="cal" class="cal" hidden aria-label="日付で見る">
-    <h2 class="cal-h">日付で見る <span class="cal-note">濃いほど投稿が多い月</span></h2>
-    <div id="years" class="years"></div>
-    <div id="month" class="month" hidden></div>
-  </section>
+  <h2>もしものとき</h2>
+  <p>
+    このサイトが持っている個人の情報は、上のフォームに書いてもらった連絡先（任意）とひとことだけです。
+    送信元のIPアドレスは、そのままの形では残していません。
+  </p>
+  <p>
+    管理用のアカウントが乗っ取られた、データが漏れた、などが分かったときは、すぐにサイトを止め、必要ならデータベースを消して、このページでお知らせします。
+  </p>
 
-  <p id="period" class="period" hidden><span id="period-t"></span><button id="period-x" type="button" aria-label="期間の指定を外す">×</button></p>
-  <p id="status" class="status" aria-live="polite"></p>
-  <ol id="results" class="results"></ol>
-  <button id="more" class="more" type="button" hidden>もっと見る</button>
+  <h2>仕組みについて</h2>
+  <p>
+    どうやって記事を集めて、どう検索しているのかを書いたページがあります。
+  </p>
+  <p><a href="/tech">仕組み →</a></p>
+
+  <h2>確認しているAmebaの決まりごと</h2>
+  <p>
+    下のページを、それぞれの日付で読んで確認しています。
+    自動で記事を取ることをはっきり禁じる決まりは見当たりませんでしたが、<strong>許可をもらったという意味ではありません</strong>。
+    内容が変わったときは読み直し、対応したらここに書き足します。
+  </p>
+  <ul>
+    <li><a href="https://helps.ameba.jp/rules/post_104.html">Ameba利用規約</a>（2025年11月10日更新のもの／2026年10月15日に確認）</li>
+    <li><a href="https://helps.ameba.jp/trouble/copyright.html">著作権の考え方</a>（2025年6月24日更新のもの／2026年10月15日に確認）</li>
+    <li><a href="https://ameblo.jp/robots.txt">ameblo.jp の robots.txt</a>（2026年10月15日に確認）</li>
+  </ul>
+
+  <p class="note">最終更新：2026年10月15日</p>
 </main>
 
 <footer class="site-foot">
-  <p id="stats"></p>
+  <p><a href="/">検索に戻る</a></p>
   <p>本文はこのサイトには表示しません。記事は Ameba ブログ（ameblo.jp）でお読みください。</p>
 </footer>
 
-<script src="/app.js"></script>
+<script>
+// 削除・公開停止の依頼
+document.getElementById("td").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, msg = document.getElementById("td-msg"), btn = f.querySelector("button");
+  btn.disabled = true;
+  msg.textContent = "送信中…";
+  try {
+    const r = await fetch("/api/takedown", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(Object.fromEntries(new FormData(f))),
+    });
+    if (!r.ok) throw new Error(r.status === 429 ? "短い間に送りすぎです。少し待ってから" : String(r.status));
+    const d = await r.json().catch(() => ({}));
+    f.reset();
+    msg.textContent = "受け付けました" + (d.id ? `（受付番号 #${d.id}）` : "") + "。確認のうえ対応します。" +
+      (d.id ? "あとでお問い合わせいただくときのために、必要ならこの番号を控えておいてください。" : "");
+  } catch (err) {
+    msg.textContent = "送れませんでした（" + err.message + "）。時間をおいてもう一度お試しください。";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// 収録件数は増えていくので、その時の数を出す
+fetch("/api/members").then((r) => r.json()).then((d) => {
+  const s = d.stats || {};
+  if (!s.ingested) return;
+  const n = (x) => Number(x).toLocaleString("ja-JP");
+  document.getElementById("scale").textContent =
+    `いま ${n(s.blogs)} のブログ、${n(s.ingested)} 記事が入っています。`;
+}).catch(() => {});
+</script>
 </body>
 </html>
