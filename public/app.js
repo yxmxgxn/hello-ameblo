@@ -56,6 +56,59 @@
   }
 
   const memberOf = (no) => allMembers.find((m) => m.no === no);
+
+  // いまの条件を文章にする(「チャーハン ／ 竹内朱莉・田村芽実 ／ 2016年」)。何で絞っているかを画面に出すため
+  function condText(c) {
+    const parts = [];
+    if (c.q) parts.push(`「${c.q}」`);
+    const names = (c.m ? c.m.split(",") : []).map(Number).map(memberOf).filter(Boolean).map((m) => m.name);
+    if (names.length) {
+      let who = names.length > 3 ? `${names.slice(0, 3).join("・")} ほか${names.length - 3}人` : names.join("・");
+      const s = names.length === 1 && c.b ? memberOf(Number(c.m)).blogs.find((b) => b.id === c.b) : null;
+      if (s) who += `（${s.title}）`;
+      parts.push(who);
+    } else if (c.act) {
+      parts.push("ハロプロ現役のみ");
+    }
+    if (c.d) parts.push(periodLabel(c.d));
+    return parts.join(" ／ ");
+  }
+  // 検索語以外の絞り込みがあるか(0件のとき、絞り込みのせいかを確かめるため)
+  const narrowed = (c) => !!(c.m || c.b || c.d || c.act);
+  let blogNote = false;   // 2人目を足してブログの指定が外れたことを、次の表示で一度だけ知らせる
+
+  // 0件のとき: 絞り込みを全部外して1件でもあるかだけ見る。どの記事にも無いのか、条件で外れたのかを分けて出す
+  async function explainEmpty(c) {
+    const cond = condText(c);
+    if (!c.q || !narrowed(c)) {
+      statusEl.textContent = c.q ? `「${c.q}」はどの記事にもありません` : `${cond ? cond + " ／ " : ""}記事がありません`;
+      return;
+    }
+    statusEl.textContent = `${cond} ／ 0 件（ほかの条件で確かめています…）`;
+    let found = false;
+    try {
+      const d = await (await fetch("/api/search?" + new URLSearchParams({ q: c.q, act: "0" }))).json();
+      found = !!(d.results && d.results.length);
+    } catch { /* 確かめられなければ 0 件とだけ出す */ }
+    if (current !== c) return;   // 待っている間に条件が変わった
+    if (!found) {
+      statusEl.textContent = `「${c.q}」はどの記事にもありません`;
+      return;
+    }
+    statusEl.replaceChildren(`${cond} ／ 0 件。メンバー・期間などの絞り込みを外すと見つかります。`,
+      el("button", {
+        type: "button", class: "ghost inline",
+        onclick: () => {
+          picked.clear();
+          blogPick = "";
+          actEl.checked = false;
+          current = { ...current, d: "" };
+          drawChips();
+          drawPanel();
+          search(true, false);
+        },
+      }, "絞り込みを外して検索"));
+  }
   // 現役のみの指定に合う人だけを選択の対象にする
   const pool = () => allMembers.filter((m) => !actEl.checked || m.active);
   const inGroup = (g) => pool().filter((m) => m.groups.includes(g.no));
@@ -133,8 +186,17 @@
       cursor = d.next;
       moreBtn.hidden = !cursor;
       const shown = list.children.length;
-      if (!shown) statusEl.textContent = current.q ? "見つかりませんでした" : "記事がありません";
-      else statusEl.textContent = (current.q ? "" : "新着 ") + `${fmt(shown)} 件表示${cursor ? "（まだあります）" : ""}`;
+      if (!shown) {
+        await explainEmpty(current);
+      } else {
+        const cond = condText(current);
+        statusEl.textContent = (cond ? cond + " ／ " : current.q ? "" : "新着 ") +
+          `${fmt(shown)} 件表示${cursor ? "（まだあります）" : ""}`;
+      }
+      if (blogNote) {
+        statusEl.append("　※ブログの指定は、1人だけ選んでいるときに使えます");
+        blogNote = false;
+      }
     } catch (e) {
       if (!append) list.textContent = "";
       statusEl.textContent = "読み込めませんでした: " + e.message;
@@ -249,7 +311,10 @@
     // 1人だけ選んでいて、その人がブログを複数持つならブログ別に絞れるようにする
     const s = solo();
     // URL などで来たブログがその人のものでなければ外す(検索は全ブログになるので、URL からも消す)
-    if (blogPick && !(s && s.blogs.some((b) => b.id === blogPick))) blogPick = "";
+    if (blogPick && !(s && s.blogs.some((b) => b.id === blogPick))) {
+      if (picked.size > 1) blogNote = true;
+      blogPick = "";
+    }
     if (s && s.blogs.length > 1) {
       const sel = el("select", {
         "aria-label": "ブログ",
@@ -351,7 +416,9 @@
 
     const u = new URL(location.href);
     u.search = shareParams(current).toString();
+    // 開いたとき・戻ったときも、使えない指定(その人に無いブログなど)を落とした URL に置き換える
     if (pushHistory) history.pushState(null, "", u);
+    else if (u.href !== location.href) history.replaceState(null, "", u);
     document.title = current.q ? `${current.q} - アメブロ検索` : "アメブロ検索";
 
     periodEl.hidden = !current.d;
