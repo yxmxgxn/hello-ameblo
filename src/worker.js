@@ -194,7 +194,8 @@ async function handleSearch(url, env) {
   const cols = "e.entry_id, e.blog, e.title, e.published, e.theme_id, e.theme_name, e.body, e.restricted, " +
     "mb.name AS member, b.title AS blog_title";
   // メンバーを名指ししているなら、現役かどうかの判定はもう要らない
-  const needMeta = act && !ms.length;
+  // ブログを明示しているときは、現役かどうかで記事を落とさない(書き手不明・OG の記事も出す)
+  const needMeta = act && !ms.length && !blog;
   const joins = "LEFT JOIN members mb ON mb.member_no = e.member_no LEFT JOIN blogs b ON b.blog = e.blog" +
     (needMeta ? " JOIN member_meta mm ON mm.member_no = e.member_no" : "");
   const where = [];
@@ -434,7 +435,7 @@ function shortTitle(t) {
 }
 
 async function handleMembers(env) {
-  const [{ results: rows }, { results: stats }, { results: groups }] = await env.DB.batch([
+  const [{ results: rows }, { results: stats }, { results: groups }, { results: blogRows }] = await env.DB.batch([
     env.DB.prepare(
       "SELECT DISTINCT mb.member_no, mb.name, mb.kana, mm.groups, mm.active, t.blog, b.title, b.newest_id FROM members mb " +
       // 対応表のブログに、例外指定で記事が入ったブログ(member_blogs)も足す
@@ -448,6 +449,8 @@ async function handleMembers(env) {
       "sum(done) AS done, max(updated_at) AS updated_at FROM blogs"
     ),
     env.DB.prepare("SELECT group_no, name FROM groups ORDER BY group_no"),
+    // ブログだけで絞るときの選択肢(記事が1件でもあるブログ)
+    env.DB.prepare("SELECT blog, title FROM blogs WHERE ingested > 0 ORDER BY blog"),
   ]);
   const members = [];
   for (const r of rows) {
@@ -467,6 +470,7 @@ async function handleMembers(env) {
   return json({
     members,
     groups: groups.map((r) => ({ no: r.group_no, name: r.name })),
+    blogs: blogRows.map((r) => ({ id: r.blog, title: shortTitle(r.title) || r.blog })),
     stats: stats[0] || {},
   }, 200, "public, max-age=300");
 }

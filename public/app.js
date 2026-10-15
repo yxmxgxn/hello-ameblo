@@ -12,9 +12,9 @@
   let cursor = null;
   let busy = false;
   let cal = null;           // 日付で見る: {key, months: Map(ym→件数), ym, days: Map(日→件数)}
-  let allMembers = [], allGroups = [];
+  let allMembers = [], allGroups = [], allBlogs = [];
   const picked = new Set(); // 選択中のメンバー番号。グループを押すとまとめて入る
-  let blogPick = "";        // 1人だけ選んだ時の、その人のブログ別指定
+  let blogPick = "";        // 1人だけ選んだ時の、その人のブログ別指定。誰も選んでいなければ「ブログだけで絞る」指定
   let byKana = false;       // メンバーの並び: false=グループ順(既定) / true=あいうえお順
   let gView = null;         // メンバー一覧をどのグループに絞って見せているか(null=すべて)。選択とは別
   let hold = null;          // 選ぶたびに叩かないよう少し待つ
@@ -57,6 +57,15 @@
 
   const memberOf = (no) => allMembers.find((m) => m.no === no);
 
+  // ブログの表示名。1人だけのブログは「名前（ブログ名）」、何人かで書くブログはブログ名だけ
+  const writersOf = (id) => allMembers.filter((m) => m.blogs.some((b) => b.id === id));
+  function blogName(id) {
+    const b = allBlogs.find((x) => x.id === id);
+    const w = writersOf(id);
+    const title = b ? b.title : id;
+    return w.length === 1 ? `${w[0].name}（${title}）` : title;
+  }
+
   // いまの条件を文章にする(「チャーハン ／ 竹内朱莉・田村芽実 ／ 2016年」)。何で絞っているかを画面に出すため
   function condText(c) {
     const parts = [];
@@ -67,6 +76,8 @@
       const s = names.length === 1 && c.b ? memberOf(Number(c.m)).blogs.find((b) => b.id === c.b) : null;
       if (s) who += `（${s.title}）`;
       parts.push(who);
+    } else if (c.b) {
+      parts.push(`ブログ: ${blogName(c.b)}`);
     } else if (c.act) {
       parts.push("ハロプロ現役のみ");
     }
@@ -310,6 +321,14 @@
     }
     // 1人だけ選んでいて、その人がブログを複数持つならブログ別に絞れるようにする
     const s = solo();
+    // ブログだけで絞っている(誰も選んでいない)
+    if (!picked.size && blogPick && allBlogs.some((b) => b.id === blogPick)) {
+      chipsEl.append(el("span", { class: "chip" }, `ブログ: ${blogName(blogPick)}`,
+        el("button", { type: "button", "aria-label": "ブログの指定を外す", onclick: () => pickBlog("") }, "×")));
+      chipsEl.hidden = false;
+      pickLabel.textContent = "メンバー選択　ブログで絞り込み中";
+      return;
+    }
     // URL などで来たブログがその人のものでなければ外す(検索は全ブログになるので、URL からも消す)
     if (blogPick && !(s && s.blogs.some((b) => b.id === blogPick))) {
       if (picked.size > 1) blogNote = true;
@@ -362,6 +381,21 @@
     if (!shown.length) mlist.append(el("span", { class: "none" }, "該当なし"));
     mcount.textContent = `${fmt(shown.length)}人`;
 
+    // ブログ: 何人かで書くブログを先に、そのあと1人のブログを書き手の読み順で
+    const blist = $("blist");
+    blist.textContent = "";
+    const blogs = allBlogs.map((b) => ({ ...b, w: writersOf(b.id), name: blogName(b.id) }))
+      .filter((b) => b.w.length && (!q || b.name.includes(q) || b.w.some((m) => m.name.includes(q) || (m.kana || "").includes(q))));
+    blogs.sort((a, b) => (b.w.length > 1) - (a.w.length > 1) ||
+      (a.w.length > 1 ? a.name.localeCompare(b.name, "ja") : (a.w[0].kana || "んん").localeCompare(b.w[0].kana || "んん", "ja")));
+    for (const b of blogs) {
+      const on = !picked.size && blogPick === b.id;
+      blist.append(el("button", {
+        type: "button", class: "tag" + (on ? " on" : ""), "aria-pressed": on, onclick: () => pickBlog(b.id),
+      }, b.name));
+    }
+    if (!blogs.length) blist.append(el("span", { class: "none" }, "該当なし"));
+
     // グループに絞っている時だけ、見えている人をまとめて選べる
     const allBtn = $("pick-all");
     const all = shown.length && shown.every((m) => picked.has(m.no));
@@ -380,7 +414,17 @@
     drawPanel();
   }
 
+  // ブログだけで絞る。選ぶとメンバーの指定は外れる。同じものをもう一度押すと外す
+  function pickBlog(id) {
+    picked.clear();
+    blogPick = blogPick === id ? "" : id;
+    drawChips();
+    drawPanel();
+    queueSearch();
+  }
+
   function toggleMember(no) {
+    if (!picked.size) blogPick = "";   // ブログだけの指定からメンバー指定に切り替える
     if (picked.has(no)) picked.delete(no); else picked.add(no);
     drawChips();
     drawPanel();
@@ -407,7 +451,7 @@
     current = {
       q: qEl.value.trim(),
       m: [...picked].join(","),
-      b: picked.size === 1 ? blogPick : "",
+      b: picked.size <= 1 ? blogPick : "",
       act: actEl.checked,
       d: (keepPeriod && current ? current.d : "") || "",
       order: orderEl.value,
@@ -477,6 +521,7 @@
   });
   $("pick-clear").addEventListener("click", () => {
     picked.clear();
+    blogPick = "";
     drawChips();
     drawPanel();
     queueSearch();
@@ -490,6 +535,7 @@
   fetch("/api/members").then((r) => r.json()).then((d) => {
     allMembers = d.members || [];
     allGroups = d.groups || [];
+    allBlogs = d.blogs || [];
     const s = d.stats || {};
     if (s.ingested) {
       $("stats").textContent = `収録 ${fmt(s.ingested)} 記事 / ${fmt(s.blogs)} ブログ` +
