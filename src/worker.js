@@ -423,8 +423,16 @@ async function handleCalendar(url, env) {
   const blog = (url.searchParams.get("b") || "").slice(0, 100);
   const ymRaw = url.searchParams.get("ym") || "";
   const ym = /^\d{4}-\d{2}$/.test(ymRaw) ? ymRaw : "";
-  const where = "member_no = ?" + (blog ? " AND blog = ?" : "");
+  // 検索語があれば、その語を含む記事だけを数える(カレンダーを検索の絞り込みに使えるように)。
+  // その人の記事を外側に回し、ヒットした記事IDの集合に入っているかだけを見る(本文は読まない)
+  const q = (url.searchParams.get("q") || "").slice(0, 400);
+  const built = q.trim() && [...q.trim()].length <= MAX_Q ? buildMatch(q) : null;
+  let where = "member_no = ?" + (blog ? " AND blog = ?" : "");
   const binds = blog ? [m, blog] : [m];
+  if (built) {
+    where += " AND entry_id IN (SELECT rowid FROM entry_fts WHERE entry_fts MATCH ?)";
+    binds.push(built.match);
+  }
   const stmts = [
     env.DB.prepare(
       `SELECT substr(published, 1, 7) AS ym, count(*) AS n FROM entries WHERE ${where} AND published IS NOT NULL ` +

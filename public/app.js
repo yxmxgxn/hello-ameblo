@@ -226,8 +226,10 @@
   async function loadCalendar() {
     $("cal-hint").hidden = picked.size === 1;
     if (picked.size !== 1) { calEl.hidden = true; cal = null; return; }
-    const base = `/api/calendar?m=${current.m}&b=${encodeURIComponent(current.b)}`;
-    const key = `${current.m}@${current.b}`;
+    // 検索語があれば、カレンダーの数字は「その語を含む記事の数」になる
+    const base = `/api/calendar?m=${current.m}&b=${encodeURIComponent(current.b)}` +
+      (current.q ? `&q=${encodeURIComponent(current.q)}` : "");
+    const key = `${current.m}@${current.b}@${current.q}`;
     const ym = current.d.length >= 7 ? current.d.slice(0, 7) : "";
     if (!cal || cal.key !== key) {
       const r = await (await fetch(base)).json();
@@ -238,6 +240,7 @@
       cal.days = new Map(r.days);
     }
     cal.ym = ym;
+    $("cal-note").textContent = current.q ? `濃いほど「${current.q}」が多い月` : "濃いほど投稿が多い月";
     drawYears();
     drawMonth();
     calEl.hidden = cal.months.size === 0;
