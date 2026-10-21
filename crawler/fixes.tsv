@@ -336,3 +336,20 @@ entry	11048237053	95	# 2011-10-15 竹内散髪(^w^)（竹内朱莉）
 entry	11039125372	93	# 2011-10-05 大好きヾ(＠⌒ー⌒＠)ノ（中西香菜）
 entry	11018609295	96	# 2011-09-15 はじめまして(^o^）（勝田里奈）
 
+# ── つばきファクトリー「ブログ」テーマ: メンバー別テーマができる前・後に共通テーマで書いた記事。タイトル末尾の署名で決める ──
+# 2026-10-21 確認。署名の無い記事は 12798397643「シナモンロール食べたよ」の1件だけ（空欄のまま）
+title	tsubaki-factory/10089538077	山岸理子	144
+title	tsubaki-factory/10089538077	小片リサ	145
+title	tsubaki-factory/10089538077	新沼希空	146
+title	tsubaki-factory/10089538077	谷本安美	147
+title	tsubaki-factory/10089538077	岸本ゆめの	148
+title	tsubaki-factory/10089538077	浅倉樹々	149
+title	tsubaki-factory/10089538077	小野瑞歩	150
+title	tsubaki-factory/10089538077	小野田紗栞	151
+title	tsubaki-factory/10089538077	秋山眞緒	152
+title	tsubaki-factory/10089538077	河西結心	153
+title	tsubaki-factory/10089538077	八木栞	154
+title	tsubaki-factory/10089538077	福田真琳	155
+title	tsubaki-factory/10089538077	豫風瑠乃	156
+title	tsubaki-factory/10089538077	秋山 眞緒	152	# 姓と名の間に空白がある署名
+default	tsubaki-factory/10089538077	-	# 署名が無い記事は書き手を決めない
