@@ -613,6 +613,8 @@ async function crawlTargets(request, env) {
   for (const k of new Set([...before.keys(), ...after.keys()])) {
     if ((before.get(k) ?? null) !== (after.get(k) ?? null)) changed.push(k);
   }
+  // 対応表が変わって記事の書き手を付け直したら、タイトル署名の確認は最初からやり直す(crawlFix の title_seen)
+  if (changed.length) stmts.push(env.DB.prepare("DELETE FROM state WHERE k LIKE 'title_seen:%'"));
   for (const k of changed) {
     const [blog, theme] = k.split("\t");
     const mno = after.get(k) ?? null;
@@ -787,8 +789,12 @@ async function crawlFix(request, env) {
       .bind(Number(e.member_no), Number(e.entry_id), Number(e.member_no)));
   }
 
-  // タイトルで決める指定。まだその指定で決まっていない記事だけを見る(2回目以降はほぼ0件)
+  // タイトルで決める指定。前回どこまで見たかを state に残し、指定が変わっていなければ続きの新しい記事だけを見る
+  // (毎回テーマの全記事を読み直していて、7日で200万行を超えていた。2026-10-21)。
+  // 新しく取り込む記事は、クローラが同じ指定で書き手を決めてから送ってくるので、ここで漏れることはない
   let retitled = 0;
+  const seen = new Map((await env.DB.prepare("SELECT k, v FROM state WHERE k LIKE 'title_seen:%'").all())
+    .results.map((r) => [r.k, r.v]));
   const byBlog = new Map();
   for (const r of titles) {
     const k = `${r.blog}\t${r.theme_id}`;
@@ -802,7 +808,11 @@ async function crawlFix(request, env) {
     // そのテーマの記事を端から見る。対応表がブログ丸ごとを誰かに割り当てていることがあるので、
     // 「すでに誰かになっている」記事も調べ直す(変わらなければ何もしない)。
     // テーマを指定しているのは、ちゃんとテーマが付いている記事まで書き換えないため。
-    let from = 0;
+    const sig = JSON.stringify([rules, fallback ?? "undef"]);
+    const sk = `title_seen:${k}`;
+    const prev = seen.get(sk) || "";
+    const cut = prev.lastIndexOf("|");
+    let from = cut >= 0 && prev.slice(0, cut) === sig ? Number(prev.slice(cut + 1)) || 0 : 0;
     for (let page = 0; page < 30; page++) {
       const { results } = await env.DB.prepare(
         "SELECT entry_id, title, member_no FROM entries WHERE blog = ? AND theme_id = ? AND entry_id > ? " +
@@ -819,6 +829,7 @@ async function crawlFix(request, env) {
       }
       if (results.length < 1000) break;
     }
+    stmts.push(env.DB.prepare("INSERT OR REPLACE INTO state (k, v) VALUES (?, ?)").bind(sk, `${sig}|${from}`));
   }
 
   // 対応表にテーマの割り当てがあるのに空欄になっている記事を埋め直す(取りこぼしの修復)
@@ -935,17 +946,38 @@ async function crawlBlog(request, env) {
 
 // 同じURLの結果は数分キャッシュする(誰が見ても同じ内容なので共有して問題ない)。
 // D1 を引く回数が減り、同じ検索を繰り返し叩かれても負荷が増えない。
+// データが変わるのは毎時のクロールのときだけ(毎時7分に始まり、新着はたいてい10分ほどで入り終わる)。
+// なので、同じ条件の結果は次の毎時20分までキャッシュして、そのあいだは D1 に聞かない
+const REFRESH_MIN = 20;
+function secondsUntilRefresh(now = new Date()) {
+  const t = new Date(now);
+  t.setUTCMinutes(REFRESH_MIN, 0, 0);
+  if (t <= now) t.setUTCHours(t.getUTCHours() + 1);
+  return Math.max(60, Math.round((t - now) / 1000));
+}
+
 async function cached(request, ctx, build) {
   const cache = caches.default;
   const hit = await cache.match(request);
   if (hit) {
     const r = new Response(hit.body, hit);
     r.headers.set("x-cache", "hit");   // キャッシュが効いているか外から確かめるための印
+    r.headers.set("cache-control", "public, max-age=60");
     return r;
   }
   const res = await build();
-  if (res.status === 200) ctx.waitUntil(cache.put(request, res.clone()));
-  return res;
+  if (res.status === 200) {
+    // 置いておく長さ: 次の毎時20分まで。過ぎた日の一覧のように、元から長めを指定しているものはそちらを使う
+    const declared = parseInt((res.headers.get("cache-control") || "").match(/max-age=(\d+)/)?.[1] || "0", 10);
+    const ttl = Math.max(secondsUntilRefresh(), declared);
+    const stored = new Response(res.clone().body, res);
+    stored.headers.set("cache-control", `public, max-age=${ttl}`);
+    ctx.waitUntil(cache.put(request, stored));
+  }
+  // ブラウザには短く持たせる(古い結果をブラウザが抱え続けないように)
+  const out = new Response(res.body, res);
+  out.headers.set("cache-control", "public, max-age=60");
+  return out;
 }
 
 /* ============================ 定期実行 ============================ */

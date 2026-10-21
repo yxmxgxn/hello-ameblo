@@ -548,9 +548,12 @@ class Crawler:
             if not newest or len(new) < len(entries) or page >= int(paging.get("max_page") or 1):
                 break  # 初回は1ページ目だけ(残りは遡りで拾う)
             page += 1
-        if fresh:
-            log(f"  {blog}: 新着 {len(fresh)} 件")
-        if self.ingest(blog, list(reversed(fresh))) and top:
+        before = self.inserted
+        done = self.ingest(blog, list(reversed(fresh)))
+        # fresh は「取り込み済みか確かめる候補」(読んだページの全件)なので、実際に入った件数を出す
+        if self.inserted > before:
+            log(f"  {blog}: 新着 {self.inserted - before} 件")
+        if done and top:
             self.api.call("POST", "/api/crawl/blog", {
                 "blog": blog, "title": title, "total": total, "newest_id": max(top, newest),
                 "cursor_page": None if newest else 2,
