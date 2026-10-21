@@ -163,6 +163,9 @@ function json(obj, status = 200, cache = "no-store") {
   });
 }
 
+// 複数人の語なし表示で、1人ずつ読んで混ぜる人数の上限(これを超えたら IN (...) で一度に読む)
+const MERGE_MAX = 100;
+
 const entryUrl = (blog, id) => `https://ameblo.jp/${blog}/entry-${id}.html`;
 
 async function handleSearch(url, env) {
@@ -235,6 +238,49 @@ async function handleSearch(url, env) {
   } else {
     // 語なし: 絞り込みに合う記事を公開日時の順に並べる(新着一覧・カレンダーから日を選んだ時もこれ)。
     // 記事IDは書き始めた時点で付くので、予約投稿があると公開日時の順とずれる
+    //
+    // 複数人(メンバーの複数選択・現役のみ)は、1人ずつ「公開日時の順に先頭から」読んで混ぜる。
+    // IN (...) や member_meta との JOIN だと、対象の記事を全部読んでから並べ替えていた
+    // (1回5万〜13万行・2秒前後。2026-10-21)。1人あたり PAGE+1 件で打ち切れば 人数×101 行で済む
+    let people = null;
+    if (!blog) {
+      if (needMeta) {
+        const { results: act1 } = await env.DB.prepare("SELECT member_no FROM member_meta WHERE active = 1").all();
+        people = act1.map((r) => r.member_no);
+      } else if (ms.length > 1) {
+        people = [...new Set(ms)];
+      }
+      if (people && (people.length < 2 || people.length > MERGE_MAX)) people = null;
+    }
+    if (people) {
+      const dir = asc ? "ASC" : "DESC";
+      const op = asc ? ">" : "<";
+      const stmts = [];
+      const cond = ["e.member_no = ?"];
+      if (d) cond.push("e.published >= ? AND e.published < ?");
+      if (cPub && Number.isFinite(cId)) cond.push(`(e.published ${op} ? OR (e.published = ? AND e.entry_id ${op} ?))`);
+      const perMember = `SELECT ${cols} FROM entries e LEFT JOIN members mb ON mb.member_no = e.member_no ` +
+        `LEFT JOIN blogs b ON b.blog = e.blog WHERE ${cond.join(" AND ")} ` +
+        `ORDER BY e.published ${dir}, e.entry_id ${dir} LIMIT ?`;
+      for (const m of people) {
+        const bd = [m];
+        if (d) bd.push(d, d + "~");
+        if (cPub && Number.isFinite(cId)) bd.push(cPub, cPub, cId);
+        bd.push(PAGE + 1);
+        stmts.push(env.DB.prepare(perMember).bind(...bd));
+      }
+      let sets;
+      try {
+        sets = await env.DB.batch(stmts);
+      } catch (e) {
+        return json({ error: "query", message: String(e && e.message || e), results: [], next: null }, 500);
+      }
+      const k = (r) => `${r.published || ""}~${String(r.entry_id).padStart(20, "0")}`;
+      const merged = sets.flatMap((s) => s.results)
+        .sort((a, b) => (asc ? 1 : -1) * (k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0))
+        .slice(0, PAGE + 1);
+      return respondPage(merged, null, asc);
+    }
     narrow();
     if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
     if (cPub && Number.isFinite(cId)) {
@@ -256,6 +302,11 @@ async function handleSearch(url, env) {
     return json({ error: "query", message: String(e && e.message || e), results: [], next: null }, 500);
   }
 
+  return respondPage(results, built, asc);
+}
+
+// 結果の行から、画面に返す JSON を作る(語あり・語なし・複数人の混ぜ合わせで共通)。results は PAGE+1 件まで
+function respondPage(results, built, asc) {
   const more = results.length > PAGE;
   const page = results.slice(0, PAGE);
   // 続きの位置は並べ替える前に決める(語ありは記事ID順に読んでいるので、その最後の記事ID)

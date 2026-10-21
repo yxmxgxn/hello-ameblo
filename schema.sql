@@ -121,3 +121,7 @@ CREATE TABLE IF NOT EXISTS takedown (
   done       INTEGER NOT NULL DEFAULT 0,  -- 対応済みなら1(管理ページ /_takedown で付ける)
   created_at TEXT NOT NULL
 );
+
+-- 語なしで1つのブログを見る(公開日時の新しい順)用。無いと、そのブログの記事を全部読んでから並べ替える
+-- (1回13万行・5秒近くかかった。2026-10-21)。rowid(=記事ID)が末尾に付くので (published, entry_id) の順で読める
+CREATE INDEX IF NOT EXISTS entries_blog_pub ON entries(blog, published);
