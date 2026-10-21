@@ -212,7 +212,18 @@ async function handleSearch(url, env) {
   };
   let sql;
 
-  if (built) {
+  if (built && (ms.length || blog)) {
+    // メンバーかブログを指定しているとき: その人(ブログ)の記事を記事ID順に読み、ヒットした記事IDの集合に
+    // 入っているかだけを見る。下の「ヒットを外側に回す」形だと、よく出る語であまり書いていない人を選んだとき、
+    // ほかの人の記事を延々と確かめることになる(1回15万行・最悪2秒読んでいた。2026-10-21)
+    narrow();
+    where.push("e.entry_id IN (SELECT rowid FROM entry_fts WHERE entry_fts MATCH ?)");
+    binds.push(built.match);
+    if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
+    if (Number.isFinite(cursor)) { where.push(`e.entry_id ${asc ? ">" : "<"} ?`); binds.push(cursor); }
+    sql = `SELECT ${cols} FROM entries e ${joins} ` +
+      `WHERE ${where.join(" AND ")} ORDER BY e.entry_id ${asc ? "ASC" : "DESC"} LIMIT ?`;
+  } else if (built) {
     // entry_fts を外側に回し、rowid(=記事ID)順にLIMITで打ち切らせる。ヒット数が多い語でも全件は読まない
     where.push("entry_fts MATCH ?");
     binds.push(built.match);
