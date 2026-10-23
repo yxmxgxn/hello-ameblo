@@ -705,11 +705,6 @@ async function crawlEntries(request, env, ctx) {
     ctx.waitUntil(notifyDiscord(env, `記事が編集されたので入れ直しました（${edited.length}件）`,
       lines + (edited.length > 10 ? `\nほか${edited.length - 10}件` : "")));
   }
-  const fresh = entries.filter((e) => !exists.has(Number(e.entry_id)))
-    .map((e) => ({ ...e, member_no: memberOf(e) }));
-  if (fresh.length && env.DISCORD_WATCH_WEBHOOK) {
-    ctx.waitUntil(notifyWatched(env, fresh).catch((err) => console.log("見守りの通知に失敗", String(err))));
-  }
   return json({ ok: true, inserted: Object.values(added).reduce((a, b) => a + b, 0), replaced: exists.size });
 }
 
@@ -1023,37 +1018,6 @@ async function notifyDiscord(env, title, description) {
       embeds: [{ title, description, url: "https://github.com/yxmxgxn/hello-ameblo/actions", color: 0x2d8c3c }],
     }),
   });
-}
-
-// 見守りリスト(state の watch_members。メンバー番号の JSON 配列)のメンバーの新着記事を、
-// 専用の Discord チャンネル(DISCORD_WATCH_WEBHOOK)へ送る。そのチャンネルの通知を「すべてのメッセージ」にすると
-// スマホの Discord アプリがそのまま通知する。
-// 遡りで入った古い記事は送らない(投稿が直近3日以内のものだけ。dailyReport と同じ基準)。
-async function notifyWatched(env, fresh) {
-  const row = await env.DB.prepare("SELECT v FROM state WHERE k = 'watch_members'").first();
-  if (!row || !row.v) return;
-  const watch = new Set(JSON.parse(row.v).map(Number));
-  const cutoff = new Date(Date.now() + 9 * 3600e3 - 3 * 24 * 3600e3).toISOString().slice(0, 16);
-  const hits = fresh.filter((e) => watch.has(e.member_no) && (e.published || "") >= cutoff);
-  if (!hits.length) return;
-
-  const { results: members } = await env.DB.prepare("SELECT member_no, name FROM members").all();
-  const names = new Map(members.map((m) => [Number(m.member_no), m.name]));
-  const md = (s) => String(s || "").replace(/[\[\]]/g, "");
-  const lines = hits.slice(0, 20).map((e) =>
-    `${(e.published || "").slice(11, 16)} **${md(names.get(e.member_no) || e.blog)}** ` +
-    `[${md(e.title || "（無題）").slice(0, 50)}](${entryUrl(e.blog, e.entry_id)})`);
-  if (hits.length > 20) lines.push(`ほか ${hits.length - 20} 件`);
-
-  const res = await fetch(env.DISCORD_WATCH_WEBHOOK, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      username: "アメブロ見守り",
-      embeds: [{ title: `見守り中のメンバーの新着 ${hits.length}件`, description: lines.join("\n").slice(0, 4000), color: 0xe85d75 }],
-    }),
-  });
-  if (!res.ok) throw new Error(`Discord ${res.status}`);
 }
 
 // 削除チェックが全ブログを一周したら(5日ほど)、書き手が決まっていない記事を知らせる。
