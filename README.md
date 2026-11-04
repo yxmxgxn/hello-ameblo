@@ -1,4 +1,4 @@
-# アメブロ検索
+# ハロプロ アメブロ検索
 
 https://ameblo.karin-archive.com
 

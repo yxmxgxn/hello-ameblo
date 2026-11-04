@@ -468,7 +468,7 @@
     // 開いたとき・戻ったときも、使えない指定(その人に無いブログなど)を落とした URL に置き換える
     if (pushHistory) history.pushState(null, "", u);
     else if (u.href !== location.href) history.replaceState(null, "", u);
-    document.title = current.q ? `${current.q} - アメブロ検索` : "アメブロ検索";
+    document.title = current.q ? `${current.q} - ハロプロ アメブロ検索` : "ハロプロ アメブロ検索";
 
     periodEl.hidden = !current.d;
     periodT.textContent = current.d ? `期間: ${periodLabel(current.d)}` : "";
