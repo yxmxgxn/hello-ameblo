@@ -740,8 +740,8 @@ async function crawlFix(request, env) {
   let removed = 0;
 
   for (const t of themes) {
-    blogs.add(t.blog);
     if (t.member_no === null) {
+      blogs.add(t.blog);   // 記事を消すブログだけ、あとで件数を数え直す
       stmts.push(env.DB.prepare(
         "DELETE FROM entry_fts WHERE rowid IN (SELECT entry_id FROM entries WHERE blog = ? AND theme_id = ?)"
       ).bind(t.blog, String(t.theme_id)));
@@ -803,7 +803,6 @@ async function crawlFix(request, env) {
   }
   for (const [k, rules] of byBlog) {
     const [blog, theme] = k.split("\t");
-    blogs.add(blog);
     const fallback = k in defaults ? defaults[k] : undefined;
     // そのテーマの記事を端から見る。対応表がブログ丸ごとを誰かに割り当てていることがあるので、
     // 「すでに誰かになっている」記事も調べ直す(変わらなければ何もしない)。
@@ -841,7 +840,8 @@ async function crawlFix(request, env) {
   ));
 
   if (!stmts.length) return json({ ok: true, removed: 0, retitled: 0 });
-  // 件数の集計は消したあとに数え直す
+  // 件数の集計は消したあとに数え直す。記事を消す指定があったブログだけ(書き手の付け直しでは件数は変わらない。
+  // 毎時すべてのブログを数え直していて、1回7千行ずつ読んでいた。2026-11-04)
   for (const b of blogs) {
     stmts.push(env.DB.prepare(
       "UPDATE blogs SET ingested = (SELECT count(*) FROM entries WHERE entries.blog = blogs.blog) WHERE blog = ?"
