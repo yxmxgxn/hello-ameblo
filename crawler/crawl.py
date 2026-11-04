@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import http.client
 import json
 import os
 import re
@@ -323,6 +324,10 @@ class Api:
                 log("  ! api", e.code, path, msg)
             except urllib.error.URLError as e:
                 log("  ! api", e.reason, path)
+            except (http.client.HTTPException, ConnectionError, TimeoutError) as e:
+                # 応答の前に接続を切られた(RemoteDisconnected)・時間切れ。一時的なものなのでやり直す。
+                # Worker の API はどれも何度送っても同じ結果になる(INSERT OR REPLACE・取り込み済みの確認)
+                log("  ! api", type(e).__name__, path)
             time.sleep(3 * (n + 1))
         raise RuntimeError(f"{method} {path} failed")
 
