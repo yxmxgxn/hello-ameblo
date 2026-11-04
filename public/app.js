@@ -301,7 +301,7 @@
         disabled: !n,
         "aria-label": `${m}月${dd}日 ${n}件`,
         onclick: () => pick(day),
-      }, String(dd), n ? el("small", {}, `${n}件`) : null));
+      }, String(dd), n ? el("small", {}, `/${n}件`) : null));   // 日付の横に件数(縦に積むより低く収まる)
     }
     monthEl.append(grid);
   }
