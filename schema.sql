@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS entries (
   upd_datetime TEXT,                      -- アメブロの upd_datetime(編集以外でも動く。判定には使わず記録だけ)
   publish_flg  TEXT,                      -- アメブロの publish_flg(open=公開)
   restricted INTEGER NOT NULL DEFAULT 0,   -- アメンバー限定など本文が取れなかった記事
+  gone_since TEXT,                         -- 「消えたかも」と最初に判定した時刻。猶予後の再確認でも消えていたときだけ削除する
   fetched_at TEXT
 );
 CREATE INDEX IF NOT EXISTS entries_blog_theme ON entries(blog, theme_id);

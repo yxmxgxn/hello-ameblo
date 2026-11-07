@@ -58,6 +58,10 @@ def log(*a):
 
 # ============================ アメブロ ============================
 
+# 削除チェック1ページ(一覧20件)で「見つからない」がこれを超えたら、削除ではなく異常とみなす
+MAX_GONE_PER_PAGE = 5
+
+
 class Ameblo:
     def __init__(self, delay: float):
         self.delay = delay
@@ -457,6 +461,7 @@ class Crawler:
         self.deadline = deadline
         self.inserted = 0
         self.deleted = 0
+        self.suspect = 0  # 今回初めて「消えたかも」と印を付けた記事数
         self.edited = 0
         self.skip: set[str] = set()   # 今回の実行で取り込まないと分かったブログ(noindex)
 
@@ -615,17 +620,34 @@ class Crawler:
         if not self.ingest(blog, list(open_entries.values())):
             return False  # 同じページを次回やり直す
 
-        gone = []
-        for i in (x for x in stored if x not in listed):
+        gone, alive = [], []
+        marked = {r["id"] for r in rows if r.get("gone")}  # 前に「消えたかも」と印を付けた記事
+        for i in stored:
+            if i in listed:
+                if i in marked:
+                    alive.append(i)  # 一覧に戻っている
+                continue
             if not self.budget_left():
                 return False  # 同じページを次回やり直す
-            if self.ab.entry_status(blog, i) == "gone":
+            st_ = self.ab.entry_status(blog, i)
+            if st_ == "gone":
                 gone.append(i)
+            elif st_ == "alive" and i in marked:
+                alive.append(i)  # 誤検知だった
+        # 1ページ(20件)でこれだけ消えるのは異常。アメブロ側の不調や取得の失敗とみて何もしない
+        if len(gone) > MAX_GONE_PER_PAGE:
+            log(f"  ! {blog}: 一度に {len(gone)} 件が見つからない。異常とみて印も削除もしない")
+            gone = []
+        for k in range(0, len(alive), 80):
+            self.api.call("POST", "/api/crawl/alive", {"ids": alive[k:k + 80]})
         for k in range(0, len(gone), 80):
             r = self.api.call("POST", "/api/crawl/delete", {"ids": gone[k:k + 80]})
             self.deleted += r.get("deleted", 0)
+            self.suspect += r.get("marked", 0)
+        if alive:
+            log(f"  {blog}: 見つからないと印を付けていた記事 {len(alive)} 件は残っていた(誤検知)")
         if gone:
-            log(f"  {blog}: 消えた記事 {len(gone)} 件を削除")
+            log(f"  {blog}: 見つからない記事 {len(gone)} 件(初回は印だけ・24時間後の再確認で削除)")
         self.api.call("POST", "/api/crawl/check", {"blog": blog, **nxt})
         st.update(nxt)
         return not nxt.get("cycle_done")  # 一周したブログは今回はここまで
@@ -719,7 +741,7 @@ def main():
                 left -= 1
                 if not cr.check_page(b, checks.setdefault(b, {"blog": b})):
                     have.remove(b)
-        log(f"削除チェック: {a.check_pages - left} ページ確認 / 削除 {cr.deleted} 件")
+        log(f"削除チェック: {a.check_pages - left} ページ確認 / 削除 {cr.deleted} 件 / 消えたかも(印のみ) {cr.suspect} 件")
 
         if not a.no_backfill:
             state = {b["blog"]: b for b in api.call("GET", "/api/crawl/state")["blogs"]}

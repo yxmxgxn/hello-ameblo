@@ -18,7 +18,8 @@
  *   POST /api/crawl/range      ブログ内のID範囲にある取り込み済み記事のIDと編集日時
  *   POST /api/crawl/meta       取り込み済み記事に日時だけを書き足す
  *   POST /api/crawl/fix        crawler/fixes.tsv の例外指定を取り込み済みの記事に反映
- *   POST /api/crawl/delete     アメブロ側で消えた記事を削除
+ *   POST /api/crawl/delete     アメブロで見つからない記事。初回は印と通知だけ、24時間後の再確認でも無ければ削除
+ *   POST /api/crawl/alive      再確認で記事があった(誤検知)。印を外す
  *   POST /api/crawl/notify-test  Discord 通知のテスト送信
  *
  * 定期実行: 毎日 JST 20時台に収録件数・増加数・新着を Discord へ知らせる(dailyReport)。
@@ -715,9 +716,9 @@ async function crawlRange(request, env) {
   const binds = [blog, Number(lo) || 0];
   if (hi != null) { where.push("entry_id < ?"); binds.push(Number(hi)); }
   const { results } = await env.DB
-    .prepare(`SELECT entry_id, edited FROM entries WHERE ${where.join(" AND ")} LIMIT 1000`)
+    .prepare(`SELECT entry_id, edited, gone_since FROM entries WHERE ${where.join(" AND ")} LIMIT 1000`)
     .bind(...binds).all();
-  return json({ rows: results.map((r) => ({ id: String(r.entry_id), edited: r.edited || "" })) });
+  return json({ rows: results.map((r) => ({ id: String(r.entry_id), edited: r.edited || "", gone: !!r.gone_since })) });
 }
 
 // タイトルの署名で書き手を決める。名前が複数出てくるときは後ろにある方(署名はふつう末尾)
@@ -887,33 +888,67 @@ async function crawlCheck(request, env) {
   return json({ ok: true });
 }
 
-// アメブロ側で消えた(または非公開になった)記事を消す
+// 「消えたかも」の記事を消すまでの猶予。最初に見つけた時刻から、これ以上たって再確認しても
+// まだ消えているときだけ削除する(一時的な404や取得の失敗で誤って消さないため)
+const GONE_GRACE_MS = 24 * 3600 * 1000;
+
+// アメブロ側で消えた(または非公開になった)ように見える記事の扱い。
+//   初めて見つけた → gone_since に時刻を記して Discord に知らせるだけ(検索には残す)
+//   猶予(24時間)後の再確認でもまだ消えている → 削除
 async function crawlDelete(request, env) {
   const { ids = [] } = await request.json();
   const nums = ids.map(Number).filter(Number.isFinite).slice(0, 90);
-  if (!nums.length) return json({ ok: true, deleted: 0 });
+  if (!nums.length) return json({ ok: true, deleted: 0, marked: 0 });
   const ph = nums.map(() => "?").join(",");
-  const { results: gone } = await env.DB.prepare(
-    `SELECT entry_id, blog, title, published FROM entries WHERE entry_id IN (${ph}) ORDER BY entry_id DESC`
+  const { results: rows } = await env.DB.prepare(
+    `SELECT entry_id, blog, title, published, gone_since FROM entries WHERE entry_id IN (${ph}) ORDER BY entry_id DESC`
   ).bind(...nums).all();
-  // 消す前に必ず知らせる(あとから取り返せないため)
-  if (gone.length && env.DISCORD_WEBHOOK) {
-    const lines = gone.slice(0, 20).map((r) =>
-      `・${(r.published || "").slice(0, 10)} [${r.title || "(無題)"}](${entryUrl(r.blog, r.entry_id)})`).join("\n");
-    await notifyDiscord(env, `アメブロ側で消えた記事を削除します（${gone.length}件）`,
-      lines + (gone.length > 20 ? `\nほか${gone.length - 20}件` : ""));
+  const t = now();
+  const due = (r) => r.gone_since && Date.parse(t) - Date.parse(r.gone_since) >= GONE_GRACE_MS;
+  const fresh = rows.filter((r) => !r.gone_since);
+  const gone = rows.filter(due);
+  const lines = (list) => list.slice(0, 20).map((r) =>
+    `・${(r.published || "").slice(0, 10)} [${r.title || "(無題)"}](${entryUrl(r.blog, r.entry_id)})`).join("\n")
+    + (list.length > 20 ? `\nほか${list.length - 20}件` : "");
+
+  if (fresh.length) {
+    await env.DB.batch(fresh.map((r) =>
+      env.DB.prepare("UPDATE entries SET gone_since = ? WHERE entry_id = ?").bind(t, r.entry_id)));
+    if (env.DISCORD_WEBHOOK) {
+      await notifyDiscord(env, `アメブロで見つからない記事があります（${fresh.length}件・まだ消していません）`,
+        lines(fresh) + "\n24時間以上たって再確認しても見つからなければ削除します。見えるなら誤検知です。");
+    }
   }
-  const { results } = await env.DB
-    .prepare(`SELECT blog, count(*) AS n FROM entries WHERE entry_id IN (${ph}) GROUP BY blog`).bind(...nums).all();
+  if (!gone.length) return json({ ok: true, deleted: 0, marked: fresh.length });
+
+  // 消す前に必ず知らせる(あとから取り返せないため)
+  if (env.DISCORD_WEBHOOK) {
+    await notifyDiscord(env, `再確認でも見つからなかった記事を削除します（${gone.length}件）`, lines(gone));
+  }
+  const gnums = gone.map((r) => r.entry_id);
+  const gph = gnums.map(() => "?").join(",");
+  const perBlog = new Map();
+  for (const r of gone) perBlog.set(r.blog, (perBlog.get(r.blog) || 0) + 1);
   const stmts = [
-    env.DB.prepare(`DELETE FROM entry_fts WHERE rowid IN (${ph})`).bind(...nums),
-    env.DB.prepare(`DELETE FROM entries WHERE entry_id IN (${ph})`).bind(...nums),
+    env.DB.prepare(`DELETE FROM entry_fts WHERE rowid IN (${gph})`).bind(...gnums),
+    env.DB.prepare(`DELETE FROM entries WHERE entry_id IN (${gph})`).bind(...gnums),
   ];
-  for (const r of results) {
-    stmts.push(env.DB.prepare("UPDATE blogs SET ingested = max(0, ingested - ?) WHERE blog = ?").bind(r.n, r.blog));
+  for (const [blog, n] of perBlog) {
+    stmts.push(env.DB.prepare("UPDATE blogs SET ingested = max(0, ingested - ?) WHERE blog = ?").bind(n, blog));
   }
   await env.DB.batch(stmts);
-  return json({ ok: true, deleted: results.reduce((a, r) => a + r.n, 0) });
+  return json({ ok: true, deleted: gone.length, marked: fresh.length });
+}
+
+// 再確認したら記事があった(誤検知)。「消えたかも」の印を外す
+async function crawlAlive(request, env) {
+  const { ids = [] } = await request.json();
+  const nums = ids.map(Number).filter(Number.isFinite).slice(0, 90);
+  if (!nums.length) return json({ ok: true, cleared: 0 });
+  await env.DB.prepare(
+    `UPDATE entries SET gone_since = NULL WHERE gone_since IS NOT NULL AND entry_id IN (${nums.map(() => "?").join(",")})`
+  ).bind(...nums).run();
+  return json({ ok: true, cleared: nums.length });
 }
 
 // 除外リストに載ったブログのデータを消す(削除依頼への対応もこれ)
@@ -1187,6 +1222,7 @@ async function crawlRoute(request, env, p, ctx) {
       if (route === "POST meta") return crawlMeta(request, env);
       if (route === "POST fix") return crawlFix(request, env);
       if (route === "POST delete") return crawlDelete(request, env);
+      if (route === "POST alive") return crawlAlive(request, env);
       if (route === "POST notify-test") {
         if (!env.DISCORD_WEBHOOK) return json({ error: "DISCORD_WEBHOOK 未設定" }, 400);
         await notifyDiscord(env, "通知のテスト", "クロールが止まったときは、ここにこの形で届きます。");
