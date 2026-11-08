@@ -18,7 +18,8 @@
  *   POST /api/crawl/range      ブログ内のID範囲にある取り込み済み記事のIDと編集日時
  *   POST /api/crawl/meta       取り込み済み記事に日時だけを書き足す
  *   POST /api/crawl/fix        crawler/fixes.tsv の例外指定を取り込み済みの記事に反映
- *   POST /api/crawl/delete     アメブロで見つからない記事。初回は印と通知だけ、24時間後の再確認でも無ければ削除
+ *   POST /api/crawl/gone       アメブロで見つからない記事。印(gone_since)と Discord 通知だけで、消さない
+ *   POST /api/crawl/delete     人が確認して指示した記事を削除(印の付いたものだけ。Crawl の手動実行 delete_ids)
  *   POST /api/crawl/alive      再確認で記事があった(誤検知)。印を外す
  *   POST /api/crawl/notify-test  Discord 通知のテスト送信
  *
@@ -888,43 +889,45 @@ async function crawlCheck(request, env) {
   return json({ ok: true });
 }
 
-// 「消えたかも」の記事を消すまでの猶予。最初に見つけた時刻から、これ以上たって再確認しても
-// まだ消えているときだけ削除する(一時的な404や取得の失敗で誤って消さないため)
-const GONE_GRACE_MS = 24 * 3600 * 1000;
+// アメブロで見つからない記事は自動では消さない。印(gone_since)を付けて Discord に知らせるだけにして、
+// 本当に消えているかは人が見て決める。消すのは POST /api/crawl/delete(Crawl の手動実行)
+const idLines = (list) => list.slice(0, 20).map((r) =>
+  `・${(r.published || "").slice(0, 10)} [${r.title || "(無題)"}](${entryUrl(r.blog, r.entry_id)}) \`${r.entry_id}\``).join("\n")
+  + (list.length > 20 ? `\nほか${list.length - 20}件` : "");
 
-// アメブロ側で消えた(または非公開になった)ように見える記事の扱い。
-//   初めて見つけた → gone_since に時刻を記して Discord に知らせるだけ(検索には残す)
-//   猶予(24時間)後の再確認でもまだ消えている → 削除
-async function crawlDelete(request, env) {
+// 見つからない記事。初めて見つけたものだけ印を付けて知らせる(検索には残す)
+async function crawlGone(request, env) {
   const { ids = [] } = await request.json();
   const nums = ids.map(Number).filter(Number.isFinite).slice(0, 90);
-  if (!nums.length) return json({ ok: true, deleted: 0, marked: 0 });
+  if (!nums.length) return json({ ok: true, marked: 0 });
   const ph = nums.map(() => "?").join(",");
-  const { results: rows } = await env.DB.prepare(
-    `SELECT entry_id, blog, title, published, gone_since FROM entries WHERE entry_id IN (${ph}) ORDER BY entry_id DESC`
+  const { results: fresh } = await env.DB.prepare(
+    `SELECT entry_id, blog, title, published FROM entries WHERE entry_id IN (${ph}) AND gone_since IS NULL ORDER BY entry_id DESC`
   ).bind(...nums).all();
+  if (!fresh.length) return json({ ok: true, marked: 0 });
   const t = now();
-  const due = (r) => r.gone_since && Date.parse(t) - Date.parse(r.gone_since) >= GONE_GRACE_MS;
-  const fresh = rows.filter((r) => !r.gone_since);
-  const gone = rows.filter(due);
-  const lines = (list) => list.slice(0, 20).map((r) =>
-    `・${(r.published || "").slice(0, 10)} [${r.title || "(無題)"}](${entryUrl(r.blog, r.entry_id)})`).join("\n")
-    + (list.length > 20 ? `\nほか${list.length - 20}件` : "");
-
-  if (fresh.length) {
-    await env.DB.batch(fresh.map((r) =>
-      env.DB.prepare("UPDATE entries SET gone_since = ? WHERE entry_id = ?").bind(t, r.entry_id)));
-    if (env.DISCORD_WEBHOOK) {
-      await notifyDiscord(env, `アメブロで見つからない記事があります（${fresh.length}件・まだ消していません）`,
-        lines(fresh) + "\n24時間以上たって再確認しても見つからなければ削除します。見えるなら誤検知です。");
-    }
-  }
-  if (!gone.length) return json({ ok: true, deleted: 0, marked: fresh.length });
-
-  // 消す前に必ず知らせる(あとから取り返せないため)
+  await env.DB.batch(fresh.map((r) =>
+    env.DB.prepare("UPDATE entries SET gone_since = ? WHERE entry_id = ?").bind(t, r.entry_id)));
   if (env.DISCORD_WEBHOOK) {
-    await notifyDiscord(env, `再確認でも見つからなかった記事を削除します（${gone.length}件）`, lines(gone));
+    await notifyDiscord(env, `アメブロで見つからない記事があります（${fresh.length}件・消していません）`,
+      idLines(fresh) + "\nリンクが見えるなら誤検知で、次の巡回で印が外れます。本当に消えていたら " +
+      "Actions の Crawl を手動実行し、delete_ids に上の ID(カンマ区切り)を入れてください。");
   }
+  return json({ ok: true, marked: fresh.length });
+}
+
+// 人が確認して削除を指示した記事を消す。印の付いていない記事は消さない(指定ミスの保険)。
+// ids の代わりに all: true なら、印の付いた記事を全部
+async function crawlDelete(request, env) {
+  const { ids = [], all = false } = await request.json();
+  const nums = ids.map(Number).filter(Number.isFinite).slice(0, 90);
+  if (!all && !nums.length) return json({ ok: true, deleted: 0 });
+  const { results: gone } = all
+    ? await env.DB.prepare("SELECT entry_id, blog, title, published FROM entries WHERE gone_since IS NOT NULL LIMIT 90").all()
+    : await env.DB.prepare(
+      `SELECT entry_id, blog, title, published FROM entries WHERE gone_since IS NOT NULL AND entry_id IN (${nums.map(() => "?").join(",")})`
+    ).bind(...nums).all();
+  if (!gone.length) return json({ ok: true, deleted: 0 });
   const gnums = gone.map((r) => r.entry_id);
   const gph = gnums.map(() => "?").join(",");
   const perBlog = new Map();
@@ -937,7 +940,8 @@ async function crawlDelete(request, env) {
     stmts.push(env.DB.prepare("UPDATE blogs SET ingested = max(0, ingested - ?) WHERE blog = ?").bind(n, blog));
   }
   await env.DB.batch(stmts);
-  return json({ ok: true, deleted: gone.length, marked: fresh.length });
+  if (env.DISCORD_WEBHOOK) await notifyDiscord(env, `指示された記事を削除しました（${gone.length}件）`, idLines(gone));
+  return json({ ok: true, deleted: gone.length });
 }
 
 // 再確認したら記事があった(誤検知)。「消えたかも」の印を外す
@@ -1110,6 +1114,7 @@ async function dailyReport(env) {
     env.DB.prepare("SELECT k, v FROM state WHERE k IN ('report_at', 'report_total')"),
   ]);
   const total = tot[0].n;
+  const { results: pend } = await env.DB.prepare("SELECT count(*) AS n FROM entries WHERE gone_since IS NOT NULL").all();
   const m = Object.fromEntries(prev.map((r) => [r.k, r.v]));
   const at = now();
   const since = m.report_at || new Date(Date.now() - 24 * 3600e3).toISOString();   // 初回は24時間前から
@@ -1132,7 +1137,8 @@ async function dailyReport(env) {
     `${jst(Date.parse(at)).slice(5).replace("-", "/").replace("T", " ")}`;
   const head = `収録 **${total.toLocaleString()}** 件` +
     (diff == null ? "" : `（前回から ${diff >= 0 ? "+" : ""}${diff.toLocaleString()}）`) +
-    `\n新着 **${fresh.length}** 件（${span}）`;
+    `\n新着 **${fresh.length}** 件（${span}）` +
+    (pend[0].n ? `\n⚠ アメブロで見つからず確認待ちの記事 **${pend[0].n}** 件（消していません）` : "");
 
   const res = await fetch(env.DISCORD_WEBHOOK, {
     method: "POST",
@@ -1221,6 +1227,7 @@ async function crawlRoute(request, env, p, ctx) {
       if (route === "POST range") return crawlRange(request, env);
       if (route === "POST meta") return crawlMeta(request, env);
       if (route === "POST fix") return crawlFix(request, env);
+      if (route === "POST gone") return crawlGone(request, env);
       if (route === "POST delete") return crawlDelete(request, env);
       if (route === "POST alive") return crawlAlive(request, env);
       if (route === "POST notify-test") {

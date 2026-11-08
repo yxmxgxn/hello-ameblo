@@ -11,6 +11,9 @@ on:
       blogs:
         description: このブログだけ(カンマ区切り。空なら全部)
         default: ""
+      delete_ids:
+        description: 確認して削除する記事ID(カンマ区切り。all で印の付いた記事を全部)。入れると削除だけして終わる
+        default: ""
 
 concurrency:
   group: crawl
@@ -33,4 +36,5 @@ jobs:
         run: |
           python crawler/crawl.py \
             --minutes "${{ inputs.minutes || '50' }}" \
-            ${{ inputs.blogs && format('--blogs "{0}"', inputs.blogs) || '' }}
+            ${{ inputs.blogs && format('--blogs "{0}"', inputs.blogs) || '' }} \
+            ${{ inputs.delete_ids && format('--delete-ids "{0}"', inputs.delete_ids) || '' }}

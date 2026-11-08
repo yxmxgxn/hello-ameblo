@@ -646,13 +646,12 @@ class Crawler:
         for k in range(0, len(alive), 80):
             self.api.call("POST", "/api/crawl/alive", {"ids": alive[k:k + 80]})
         for k in range(0, len(gone), 80):
-            r = self.api.call("POST", "/api/crawl/delete", {"ids": gone[k:k + 80]})
-            self.deleted += r.get("deleted", 0)
+            r = self.api.call("POST", "/api/crawl/gone", {"ids": gone[k:k + 80]})
             self.suspect += r.get("marked", 0)
         if alive:
             log(f"  {blog}: 見つからないと印を付けていた記事 {len(alive)} 件は残っていた(誤検知)")
         if gone:
-            log(f"  {blog}: 見つからない記事 {len(gone)} 件(初回は印だけ・24時間後の再確認で削除)")
+            log(f"  {blog}: 見つからない記事 {len(gone)} 件(印と通知だけ。削除は手動で指示)")
         self.api.call("POST", "/api/crawl/check", {"blog": blog, **nxt})
         st.update(nxt)
         return not nxt.get("cycle_done")  # 一周したブログは今回はここまで
@@ -694,9 +693,22 @@ def main():
     ap.add_argument("--no-backfill", action="store_true", help="新着だけ見る")
     ap.add_argument("--check-pages", type=int, default=150,
                     help="削除チェックで1回に読み直す一覧ページ数(1ページ20件)")
+    ap.add_argument("--delete-ids", help="確認して削除する記事ID(カンマ区切り。all なら印の付いた記事を全部)。指定時は削除だけして終わる")
     a = ap.parse_args()
     if not a.api or not a.token:
         ap.error("--api と --token (または CRAWL_API / CRAWL_TOKEN) が必要")
+    if a.delete_ids:
+        api = Api(a.api, a.token)
+        if a.delete_ids.strip().lower() == "all":
+            r = api.call("POST", "/api/crawl/delete", {"all": True})
+            log(f"印の付いた記事を削除: {r.get('deleted', 0)} 件")
+        else:
+            ids = [x.strip() for x in a.delete_ids.split(",") if x.strip().isdigit()]
+            n = 0
+            for k in range(0, len(ids), 80):
+                n += api.call("POST", "/api/crawl/delete", {"ids": ids[k:k + 80]}).get("deleted", 0)
+            log(f"削除: 指定 {len(ids)} 件のうち {n} 件(印の付いていない記事は消さない)")
+        return
 
     api = Api(a.api, a.token)
     ab = Ameblo(a.delay)
@@ -746,7 +758,7 @@ def main():
                 left -= 1
                 if not cr.check_page(b, checks.setdefault(b, {"blog": b})):
                     have.remove(b)
-        log(f"削除チェック: {a.check_pages - left} ページ確認 / 削除 {cr.deleted} 件 / 消えたかも(印のみ) {cr.suspect} 件")
+        log(f"削除チェック: {a.check_pages - left} ページ確認 / 消えたかも(新たに印を付けた) {cr.suspect} 件")
 
         if not a.no_backfill:
             state = {b["blog"]: b for b in api.call("GET", "/api/crawl/state")["blogs"]}
@@ -765,7 +777,7 @@ def main():
         # 無料枠の上限。失敗扱いにせず終わる(Paidにするか翌日になれば次の実行で続きから)
         log(f"D1の上限に当たったので今回はここまで: {e}")
 
-    log(f"終了: 取得 {ab.fetches} 回 / 新規取り込み {cr.inserted} 件 / 編集 {cr.edited} 件 / 削除 {cr.deleted} 件")
+    log(f"終了: 取得 {ab.fetches} 回 / 新規取り込み {cr.inserted} 件 / 編集 {cr.edited} 件 / 消えたかも(印) {cr.suspect} 件")
 
 
 if __name__ == "__main__":
