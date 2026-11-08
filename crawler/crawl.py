@@ -504,6 +504,48 @@ class Crawler:
             **times(e),
         }
 
+    def import_entries(self, specs: list[tuple[str, str]]):
+        """指定した記事だけを取り込む(巡回とは別。誤って消えた記事の取り戻しなど)。
+        記事ページから情報を取るので、一覧に載っていなくても入る。取り込み済みなら入れ直す。"""
+        excluded = load_exclude()
+        noindex: dict[str, bool] = {}
+        batch, ok = [], 0
+        for blog, eid in specs:
+            if blog in excluded:
+                log(f"  {blog}/{eid}: 除外リストのブログなので取り込まない")
+                continue
+            if blog not in noindex:  # 検索エンジンに載せない設定のブログは、巡回と同じく取り込まない
+                self.ab.entry_list(blog, 1)
+                noindex[blog] = bool(self.ab.noindex.get(blog))
+            if noindex[blog]:
+                log(f"  {blog}/{eid}: noindex のブログなので取り込まない")
+                continue
+            page = self.ab.get(f"https://ameblo.jp/{blog}/entry-{eid}.html")
+            d = self.ab.init_data(page)
+            e = (d or {}).get("entryState", {}).get("entryMap", {}).get(str(eid))
+            if not e:
+                log(f"  {blog}/{eid}: 記事ページが読めない (HTTP {self.ab.last_status})")
+                continue
+            if e.get("publish_flg") not in (None, "open"):
+                log(f"  {blog}/{eid}: 公開されていない (publish_flg={e.get('publish_flg')!r}) ので取り込まない")
+                continue
+            e = {**e, "entry_id": eid}
+            if self.drop(blog, e):
+                log(f"  {blog}/{eid}: 例外指定(fixes.tsv)で取り込まない記事")
+                continue
+            item = self.fetch_entry(blog, e)
+            if item is None:
+                log(f"  {blog}/{eid}: 本文が取れない")
+                continue
+            batch.append(item)
+            ok += 1
+            log(f"  {blog}/{eid}: 取り込み『{item['title'][:30]}』")
+            if len(batch) >= POST_BATCH:
+                self.flush(batch)
+                batch = []
+        self.flush(batch)
+        log(f"指定取り込み: {len(specs)} 件のうち {ok} 件")
+
     def ingest(self, blog: str, metas: list[dict]) -> bool:
         """一覧の記事(メタ情報)の本文を取って送る。途中で予算切れなら False。"""
         ids = [str(e["entry_id"]) for e in metas]
@@ -694,9 +736,23 @@ def main():
     ap.add_argument("--check-pages", type=int, default=150,
                     help="削除チェックで1回に読み直す一覧ページ数(1ページ20件)")
     ap.add_argument("--delete-ids", help="確認して削除する記事ID(カンマ区切り。all なら印の付いた記事を全部)。指定時は削除だけして終わる")
+    ap.add_argument("--import-entries",
+                    help="この記事だけ取り込んで終わる。「ブログID:記事ID」か記事のURLをカンマ・空白・改行区切りで")
     a = ap.parse_args()
     if not a.api or not a.token:
         ap.error("--api と --token (または CRAWL_API / CRAWL_TOKEN) が必要")
+    if a.import_entries:
+        specs = []
+        for tok in re.split(r"[,\s]+", a.import_entries.strip()):
+            m = re.fullmatch(r"(?:https?://ameblo\.jp/)?([A-Za-z0-9_-]+)(?:/entry-|:)(\d+)(?:\.html)?", tok)
+            if m and (m.group(1), m.group(2)) not in specs:
+                specs.append((m.group(1), m.group(2)))
+            elif tok:
+                log(f"  読めない指定を飛ばす: {tok}")
+        fixes = Fixes(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixes.tsv"))
+        cr = Crawler(Api(a.api, a.token), Ameblo(a.delay), a.max_fetch, time.time() + a.minutes * 60, fixes)
+        cr.import_entries(specs[:200])
+        return
     if a.delete_ids:
         api = Api(a.api, a.token)
         if a.delete_ids.strip().lower() == "all":

@@ -1,0 +1,30 @@
+name: Import
+
+# 指定した記事だけを取り込む(Crawl とは別。誤検知で消えた記事を取り戻したいときなど)。手動実行のみ。
+on:
+  workflow_dispatch:
+    inputs:
+      entries:
+        description: 取り込む記事。「ブログID:記事ID」か記事のURLを、カンマ・空白・改行で区切って
+        required: true
+
+concurrency:
+  group: import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Import
+        env:
+          CRAWL_API: ${{ vars.CRAWL_API }}
+          CRAWL_TOKEN: ${{ secrets.CRAWL_TOKEN }}
+          ENTRIES: ${{ inputs.entries }}
+        run: python crawler/crawl.py --minutes 15 --import-entries "$ENTRIES"
