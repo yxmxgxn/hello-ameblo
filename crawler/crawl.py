@@ -58,12 +58,17 @@ def log(*a):
 
 # ============================ アメブロ ============================
 
+# 削除チェック1ページ(一覧20件)で「見つからない」がこれを超えたら、削除ではなく異常とみなす
+MAX_GONE_PER_PAGE = 5
+
+
 class Ameblo:
     def __init__(self, delay: float):
         self.delay = delay
         self.fetches = 0
         self._last = 0.0
         self.last_status = 0  # 直前のリクエストのHTTPステータス(通信エラーは0)
+        self.why = ""  # entry_status の判定理由(ログ用)
         self.noindex: dict[str, bool] = {}  # ブログ → 一覧ページに noindex が付いていたか
 
     def get(self, url: str, tries: int = 3) -> str | None:
@@ -140,12 +145,15 @@ class Ameblo:
         """記事がまだ公開されているか。"alive" / "gone" / "unknown"(確かめられなかった)。
         消すのは "gone" と確定したときだけ。通信エラー等は "unknown" で次回に回す。"""
         page = self.get(f"https://ameblo.jp/{blog}/entry-{entry_id}.html")
+        self.why = f"HTTP {self.last_status}"
         if page is None:
             return "gone" if self.last_status in (404, 410) else "unknown"
         d = self.init_data(page)
         e = (d or {}).get("entryState", {}).get("entryMap", {}).get(str(entry_id))
         if not e:
+            self.why = "ページはあるが記事データが読めない"
             return "unknown"
+        self.why = f"publish_flg={e.get('publish_flg')!r}"
         return "alive" if e.get("publish_flg") in (None, "open") else "gone"
 
 
@@ -457,6 +465,7 @@ class Crawler:
         self.deadline = deadline
         self.inserted = 0
         self.deleted = 0
+        self.suspect = 0  # 今回初めて「消えたかも」と印を付けた記事数
         self.edited = 0
         self.skip: set[str] = set()   # 今回の実行で取り込まないと分かったブログ(noindex)
 
@@ -494,6 +503,48 @@ class Crawler:
             "restricted": False,
             **times(e),
         }
+
+    def import_entries(self, specs: list[tuple[str, str]]):
+        """指定した記事だけを取り込む(巡回とは別。誤って消えた記事の取り戻しなど)。
+        記事ページから情報を取るので、一覧に載っていなくても入る。取り込み済みなら入れ直す。"""
+        excluded = load_exclude()
+        noindex: dict[str, bool] = {}
+        batch, ok = [], 0
+        for blog, eid in specs:
+            if blog in excluded:
+                log(f"  {blog}/{eid}: 除外リストのブログなので取り込まない")
+                continue
+            if blog not in noindex:  # 検索エンジンに載せない設定のブログは、巡回と同じく取り込まない
+                self.ab.entry_list(blog, 1)
+                noindex[blog] = bool(self.ab.noindex.get(blog))
+            if noindex[blog]:
+                log(f"  {blog}/{eid}: noindex のブログなので取り込まない")
+                continue
+            page = self.ab.get(f"https://ameblo.jp/{blog}/entry-{eid}.html")
+            d = self.ab.init_data(page)
+            e = (d or {}).get("entryState", {}).get("entryMap", {}).get(str(eid))
+            if not e:
+                log(f"  {blog}/{eid}: 記事ページが読めない (HTTP {self.ab.last_status})")
+                continue
+            if e.get("publish_flg") not in (None, "open"):
+                log(f"  {blog}/{eid}: 公開されていない (publish_flg={e.get('publish_flg')!r}) ので取り込まない")
+                continue
+            e = {**e, "entry_id": eid}
+            if self.drop(blog, e):
+                log(f"  {blog}/{eid}: 例外指定(fixes.tsv)で取り込まない記事")
+                continue
+            item = self.fetch_entry(blog, e)
+            if item is None:
+                log(f"  {blog}/{eid}: 本文が取れない")
+                continue
+            batch.append(item)
+            ok += 1
+            log(f"  {blog}/{eid}: 取り込み『{item['title'][:30]}』")
+            if len(batch) >= POST_BATCH:
+                self.flush(batch)
+                batch = []
+        self.flush(batch)
+        log(f"指定取り込み: {len(specs)} 件のうち {ok} 件")
 
     def ingest(self, blog: str, metas: list[dict]) -> bool:
         """一覧の記事(メタ情報)の本文を取って送る。途中で予算切れなら False。"""
@@ -615,17 +666,34 @@ class Crawler:
         if not self.ingest(blog, list(open_entries.values())):
             return False  # 同じページを次回やり直す
 
-        gone = []
-        for i in (x for x in stored if x not in listed):
+        gone, alive = [], []
+        marked = {r["id"] for r in rows if r.get("gone")}  # 前に「消えたかも」と印を付けた記事
+        for i in stored:
+            if i in listed:
+                if i in marked:
+                    alive.append(i)  # 一覧に戻っている
+                continue
             if not self.budget_left():
                 return False  # 同じページを次回やり直す
-            if self.ab.entry_status(blog, i) == "gone":
+            st_ = self.ab.entry_status(blog, i)
+            if st_ == "gone":
                 gone.append(i)
+                log(f"  {blog}: entry-{i} が見つからない ({self.ab.why})")
+            elif st_ == "alive" and i in marked:
+                alive.append(i)  # 誤検知だった
+        # 1ページ(20件)でこれだけ消えるのは異常。アメブロ側の不調や取得の失敗とみて何もしない
+        if len(gone) > MAX_GONE_PER_PAGE:
+            log(f"  ! {blog}: 一度に {len(gone)} 件が見つからない。異常とみて印も削除もしない")
+            gone = []
+        for k in range(0, len(alive), 80):
+            self.api.call("POST", "/api/crawl/alive", {"ids": alive[k:k + 80]})
         for k in range(0, len(gone), 80):
-            r = self.api.call("POST", "/api/crawl/delete", {"ids": gone[k:k + 80]})
-            self.deleted += r.get("deleted", 0)
+            r = self.api.call("POST", "/api/crawl/gone", {"ids": gone[k:k + 80]})
+            self.suspect += r.get("marked", 0)
+        if alive:
+            log(f"  {blog}: 見つからないと印を付けていた記事 {len(alive)} 件は残っていた(誤検知)")
         if gone:
-            log(f"  {blog}: 消えた記事 {len(gone)} 件を削除")
+            log(f"  {blog}: 見つからない記事 {len(gone)} 件(印と通知だけ。削除は手動で指示)")
         self.api.call("POST", "/api/crawl/check", {"blog": blog, **nxt})
         st.update(nxt)
         return not nxt.get("cycle_done")  # 一周したブログは今回はここまで
@@ -667,9 +735,36 @@ def main():
     ap.add_argument("--no-backfill", action="store_true", help="新着だけ見る")
     ap.add_argument("--check-pages", type=int, default=150,
                     help="削除チェックで1回に読み直す一覧ページ数(1ページ20件)")
+    ap.add_argument("--delete-ids", help="確認して削除する記事ID(カンマ区切り。all なら印の付いた記事を全部)。指定時は削除だけして終わる")
+    ap.add_argument("--import-entries",
+                    help="この記事だけ取り込んで終わる。「ブログID:記事ID」か記事のURLをカンマ・空白・改行区切りで")
     a = ap.parse_args()
     if not a.api or not a.token:
         ap.error("--api と --token (または CRAWL_API / CRAWL_TOKEN) が必要")
+    if a.import_entries:
+        specs = []
+        for tok in re.split(r"[,\s]+", a.import_entries.strip()):
+            m = re.fullmatch(r"(?:https?://ameblo\.jp/)?([A-Za-z0-9_-]+)(?:/entry-|:)(\d+)(?:\.html)?", tok)
+            if m and (m.group(1), m.group(2)) not in specs:
+                specs.append((m.group(1), m.group(2)))
+            elif tok:
+                log(f"  読めない指定を飛ばす: {tok}")
+        fixes = Fixes(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixes.tsv"))
+        cr = Crawler(Api(a.api, a.token), Ameblo(a.delay), a.max_fetch, time.time() + a.minutes * 60, fixes)
+        cr.import_entries(specs[:200])
+        return
+    if a.delete_ids:
+        api = Api(a.api, a.token)
+        if a.delete_ids.strip().lower() == "all":
+            r = api.call("POST", "/api/crawl/delete", {"all": True})
+            log(f"印の付いた記事を削除: {r.get('deleted', 0)} 件")
+        else:
+            ids = [x.strip() for x in a.delete_ids.split(",") if x.strip().isdigit()]
+            n = 0
+            for k in range(0, len(ids), 80):
+                n += api.call("POST", "/api/crawl/delete", {"ids": ids[k:k + 80]}).get("deleted", 0)
+            log(f"削除: 指定 {len(ids)} 件のうち {n} 件(印の付いていない記事は消さない)")
+        return
 
     api = Api(a.api, a.token)
     ab = Ameblo(a.delay)
@@ -719,7 +814,7 @@ def main():
                 left -= 1
                 if not cr.check_page(b, checks.setdefault(b, {"blog": b})):
                     have.remove(b)
-        log(f"削除チェック: {a.check_pages - left} ページ確認 / 削除 {cr.deleted} 件")
+        log(f"削除チェック: {a.check_pages - left} ページ確認 / 消えたかも(新たに印を付けた) {cr.suspect} 件")
 
         if not a.no_backfill:
             state = {b["blog"]: b for b in api.call("GET", "/api/crawl/state")["blogs"]}
@@ -738,7 +833,7 @@ def main():
         # 無料枠の上限。失敗扱いにせず終わる(Paidにするか翌日になれば次の実行で続きから)
         log(f"D1の上限に当たったので今回はここまで: {e}")
 
-    log(f"終了: 取得 {ab.fetches} 回 / 新規取り込み {cr.inserted} 件 / 編集 {cr.edited} 件 / 削除 {cr.deleted} 件")
+    log(f"終了: 取得 {ab.fetches} 回 / 新規取り込み {cr.inserted} 件 / 編集 {cr.edited} 件 / 消えたかも(印) {cr.suspect} 件")
 
 
 if __name__ == "__main__":
