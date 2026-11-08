@@ -68,6 +68,7 @@ class Ameblo:
         self.fetches = 0
         self._last = 0.0
         self.last_status = 0  # 直前のリクエストのHTTPステータス(通信エラーは0)
+        self.why = ""  # entry_status の判定理由(ログ用)
         self.noindex: dict[str, bool] = {}  # ブログ → 一覧ページに noindex が付いていたか
 
     def get(self, url: str, tries: int = 3) -> str | None:
@@ -144,12 +145,15 @@ class Ameblo:
         """記事がまだ公開されているか。"alive" / "gone" / "unknown"(確かめられなかった)。
         消すのは "gone" と確定したときだけ。通信エラー等は "unknown" で次回に回す。"""
         page = self.get(f"https://ameblo.jp/{blog}/entry-{entry_id}.html")
+        self.why = f"HTTP {self.last_status}"
         if page is None:
             return "gone" if self.last_status in (404, 410) else "unknown"
         d = self.init_data(page)
         e = (d or {}).get("entryState", {}).get("entryMap", {}).get(str(entry_id))
         if not e:
+            self.why = "ページはあるが記事データが読めない"
             return "unknown"
+        self.why = f"publish_flg={e.get('publish_flg')!r}"
         return "alive" if e.get("publish_flg") in (None, "open") else "gone"
 
 
@@ -632,6 +636,7 @@ class Crawler:
             st_ = self.ab.entry_status(blog, i)
             if st_ == "gone":
                 gone.append(i)
+                log(f"  {blog}: entry-{i} が見つからない ({self.ab.why})")
             elif st_ == "alive" and i in marked:
                 alive.append(i)  # 誤検知だった
         # 1ページ(20件)でこれだけ消えるのは異常。アメブロ側の不調や取得の失敗とみて何もしない
