@@ -543,6 +543,26 @@
   window.addEventListener("popstate", fromUrl);
 
 
+  // 選んだメンバーのブログに site: で絞って Google を開く。何人かで書くブログで1人を選んでいたら名前も足す
+  // (記事タイトルに名前が入るので、その人の記事に寄る)。誰も選んでいなければ開かない
+  const G_MAX = 8;   // site: を OR でつなぐ数の上限(Google は32語まで)
+  function google(image) {
+    const note = $("g-note");
+    const ms = [...picked].map(memberOf).filter(Boolean);
+    let ids = blogPick ? [blogPick] : [...new Set(ms.flatMap((m) => m.blogs.map((b) => b.id)))];
+    if (!ids.length) { note.textContent = "メンバーかブログを選んでください"; return; }
+    if (ids.length > G_MAX) { note.textContent = `ブログが多すぎます（${G_MAX}個まで。いま${ids.length}個）`; return; }
+    note.textContent = "";
+    const site = ids.map((id) => `site:ameblo.jp/${id}`).join(" OR ");
+    const name = ms.length === 1 && ids.some((id) => writersOf(id).length > 1) ? ms[0].name : "";
+    const q = [ids.length > 1 ? `(${site})` : site, name, qEl.value.trim()].filter(Boolean).join(" ");
+    const p = new URLSearchParams({ q });
+    if (image) p.set("udm", "2");
+    window.open("https://www.google.com/search?" + p, "_blank", "noopener");
+  }
+  $("g-web").addEventListener("click", () => google(false));
+  $("g-img").addEventListener("click", () => google(true));
+
   fetch("/api/members").then((r) => r.json()).then((d) => {
     allMembers = d.members || [];
     allGroups = d.groups || [];

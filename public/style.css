@@ -148,6 +148,10 @@ select {
 }
 .ghost:hover { color: var(--accent); border-color: var(--accent); }
 
+.gsearch { margin: 8px 0 0; font-size: .85rem; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.gsearch .ghost { padding: 3px 10px; }
+.g-note { color: #b3261e; }
+
 .panel-sec { margin-top: 12px; }
 .sec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .sec-h h3 { margin: 0 !important; }
