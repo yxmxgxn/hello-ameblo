@@ -55,26 +55,31 @@ function bigramText(s) {
 
 // 検索語 → FTS5 のクエリ。語ごとに bigram のフレーズ(連続一致≒部分一致)にして AND で繋ぐ。
 // 1文字は漢字だけ受け付け、その字で始まる bigram の前方一致にする(かな1文字は多すぎて重い)。
+// 頭に - / － の付いた語は「含まない語」にして NOT で除く。含む語が1つも無ければ使えない
+// (FTS5 の NOT は何かを含む集合から除く形。除く語だけだと全記事を読むことになる)。
+// 戻り値の terms は含む語だけ(スニペットの抜き出しと色付けに使う)。
 function buildMatch(q) {
-  const terms = [];
+  const terms = [], nots = [];
   for (const raw of q.split(/[\s　]+/)) {
-    const n = normalize(raw);
-    if (!n || terms.includes(n)) continue;
-    terms.push(n);
-    if (terms.length >= MAX_TERMS) break;
+    const neg = /^[-－‐−]/.test(raw);
+    const n = normalize(neg ? raw.slice(1) : raw);
+    const into = neg ? nots : terms;
+    if (!n || into.includes(n)) continue;
+    into.push(n);
+    if (terms.length + nots.length >= MAX_TERMS) break;
   }
-  const parts = [];
-  for (const t of terms) {
-    if (t.length === 1) {
-      if (KANJI.test(t)) parts.push(`"${t}" *`);
-    } else {
-      const bg = [];
-      for (let i = 0; i + 1 < t.length; i++) bg.push(t.slice(i, i + 2));
-      parts.push(`"${bg.join(" ")}"`);
-    }
-  }
-  if (!parts.length) return null;
-  return { match: parts.join(" AND "), terms };
+  const phrase = (t) => {
+    if (t.length === 1) return KANJI.test(t) ? `"${t}" *` : null;
+    const bg = [];
+    for (let i = 0; i + 1 < t.length; i++) bg.push(t.slice(i, i + 2));
+    return `"${bg.join(" ")}"`;
+  };
+  const parts = terms.map(phrase).filter(Boolean);
+  const outs = nots.map(phrase).filter(Boolean);
+  if (!parts.length) return outs.length ? { onlyNot: true } : null;
+  let match = parts.join(" AND ");
+  if (outs.length) match = `(${match})` + outs.map((p) => ` NOT (${p})`).join("");
+  return { match, terms };
 }
 
 /* ============================ スニペット ============================ */
@@ -192,6 +197,7 @@ async function handleSearch(url, env) {
     return json({ error: "many", max: MAX_TERMS, results: [], next: null });
   }
   const built = q.trim() ? buildMatch(q) : null;
+  if (built && built.onlyNot) return json({ error: "notonly", results: [], next: null });
   if (q.trim() && !built) {
     // 正規化で全部消えた(記号・絵文字だけ) と、残ったが短すぎる(かな1文字など) を分けて返す
     const why = normalize(q) ? "short" : "empty";
@@ -490,7 +496,8 @@ async function handleCalendar(url, env) {
   // 検索語があれば、その語を含む記事だけを数える(カレンダーを検索の絞り込みに使えるように)。
   // その人の記事を外側に回し、ヒットした記事IDの集合に入っているかだけを見る(本文は読まない)
   const q = (url.searchParams.get("q") || "").slice(0, 400);
-  const built = q.trim() && [...q.trim()].length <= MAX_Q ? buildMatch(q) : null;
+  const b0 = q.trim() && [...q.trim()].length <= MAX_Q ? buildMatch(q) : null;
+  const built = b0 && !b0.onlyNot ? b0 : null;   // 除く語だけなら語なしで数える
   let where = "member_no = ?" + (blog ? " AND blog = ?" : "");
   const binds = blog ? [m, blog] : [m];
   if (built) {
