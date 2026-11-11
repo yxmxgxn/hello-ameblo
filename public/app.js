@@ -20,6 +20,16 @@
   let hold = null;          // 選ぶたびに叩かないよう少し待つ
 
   const fmt = (n) => Number(n || 0).toLocaleString("ja-JP");
+  // 1人だけ選んで語が無いときのタブのタイトル。/?m=番号 を開いたとき Worker が書くのと同じ(public/site.json)
+  let site = null;
+  fetch("/site.json").then((r) => r.json()).then((s) => { site = s; }).catch(() => {});
+  function memberTitle(c) {
+    if (!site || !c.m || c.m.includes(",")) return "";
+    const m = allMembers.find((x) => x.no === Number(c.m));
+    if (!m) return "";
+    return site.member_title.replace("{who}", m.kana ? `${m.name}（${m.kana}）` : m.name);
+  }
+
   // サーバー(src/worker.js の MAX_Q / MAX_TERMS)と同じ上限
   const MAX_Q = 100, MAX_TERMS = 5;
   const WHY = {
@@ -469,7 +479,7 @@
     // 開いたとき・戻ったときも、使えない指定(その人に無いブログなど)を落とした URL に置き換える
     if (pushHistory) history.pushState(null, "", u);
     else if (u.href !== location.href) history.replaceState(null, "", u);
-    document.title = current.q ? `${current.q} - ハロプロ アメブロ検索` : "ハロプロ アメブロ検索";
+    document.title = current.q ? `${current.q} - ハロプロ アメブロ検索` : memberTitle(current) || "ハロプロ アメブロ検索";
 
     periodEl.hidden = !current.d;
     periodT.textContent = current.d ? `期間: ${periodLabel(current.d)}` : "";

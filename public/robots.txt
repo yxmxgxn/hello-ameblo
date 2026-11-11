@@ -4,3 +4,5 @@
 User-agent: *
 Disallow: /api/
 Disallow: /_takedown
+
+Sitemap: https://ameblo.karin-archive.com/sitemap.xml

@@ -572,6 +572,77 @@ async function handleMembers(env) {
   }, 200, "public, max-age=300");
 }
 
+/* ======================= メンバー別ページ(/?m=番号) ======================= */
+// /?m=1 を「その人のアメブロを検索できるページ」として検索エンジンに見せる。ページは index.html 1枚のまま、
+// タイトル・説明・canonical・OGP・パンくず・見出しの説明文だけをその人のものに書き換える。
+// 文言は public/site.json(画面の JS と共通)。m が1人の番号でない・検索語つき・知らない番号は、そのまま返す
+const SITE_URL = "https://ameblo.karin-archive.com";
+
+async function memberPage(request, env, url) {
+  const page = await env.ASSETS.fetch(request);
+  const m = url.searchParams.get("m") || "";
+  if (!/^\d+$/.test(m) || url.searchParams.get("q") || !page.ok) return page;
+  try {
+    const no = Number(m);
+    const [{ results: info }, { results: span }, { results: groups }] = await env.DB.batch([
+      env.DB.prepare(
+        "SELECT mb.name, mb.kana, mm.groups, b.title FROM members mb LEFT JOIN member_meta mm ON mm.member_no = mb.member_no " +
+        "LEFT JOIN (SELECT member_no, blog FROM targets UNION SELECT member_no, blog FROM member_blogs) t ON t.member_no = mb.member_no " +
+        "LEFT JOIN blogs b ON b.blog = t.blog WHERE mb.member_no = ? ORDER BY b.newest_id DESC"
+      ).bind(no),
+      // (member_no, published) の索引だけで数える
+      env.DB.prepare("SELECT count(*) AS n, min(published) AS first, max(published) AS last FROM entries " +
+        "WHERE member_no = ? AND published IS NOT NULL").bind(no),
+      env.DB.prepare("SELECT group_no, name FROM groups"),
+    ]);
+    if (!info.length || !span[0] || !span[0].n) return page;
+    const site = await env.ASSETS.fetch(new URL("/site.json", url).toString()).then((r) => r.json());
+    const r0 = info[0], s = span[0];
+    const gname = Object.fromEntries(groups.map((g) => [String(g.group_no), g.name]));
+    const ym = (d) => `${d.slice(0, 4)}年${Number(d.slice(5, 7))}月`;
+    const v = {
+      who: r0.kana ? `${r0.name}（${r0.kana}）` : r0.name,
+      name: r0.name,
+      groups: (r0.groups || "").split(",").filter(Boolean).map((g) => gname[g]).filter(Boolean).join("・") || "ハロー！プロジェクト",
+      blogs: [...new Set(info.map((r) => shortTitle(r.title)).filter(Boolean))].join("」「"),
+      n: Number(s.n).toLocaleString("ja-JP"),
+      span: `${ym(s.first)}〜${ym(s.last)}`,
+    };
+    const fill = (t) => t.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ""));
+    const title = fill(site.member_title), desc = fill(site.member_description), canonical = `${SITE_URL}/?m=${no}`;
+    const set = (attr, val) => ({ element(e) { e.setAttribute(attr, val); } });
+    const crumbs = { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
+      { "@type": "ListItem", position: 1, name: site.site, item: `${SITE_URL}/` },
+      { "@type": "ListItem", position: 2, name: r0.name, item: canonical },
+    ] };
+    return new HTMLRewriter()
+      .on("title", { element(e) { e.setInnerContent(title); } })
+      .on('meta[name="description"]', set("content", desc))
+      .on('meta[property="og:title"]', set("content", title))
+      .on('meta[property="og:description"]', set("content", desc))
+      .on('meta[property="og:url"]', set("content", canonical))
+      .on('link[rel="canonical"]', set("href", canonical))
+      .on("p.lead:not(.sec)", { element(e) { e.setInnerContent(fill(site.member_lead)); } })
+      .on("head", { element(e) {
+        e.append(`<script type="application/ld+json">${JSON.stringify(crumbs).replace(/</g, "\u003c")}</script>`, { html: true });
+      } })
+      .transform(page);
+  } catch (e) {
+    return page;
+  }
+}
+
+// サイトマップ: トップ・日付で見る・このサイトについて と、記事のあるメンバー全員の /?m=番号
+async function sitemap(env) {
+  const { results } = await env.DB.prepare(
+    "SELECT member_no FROM members mb WHERE EXISTS (SELECT 1 FROM entries e WHERE e.member_no = mb.member_no) ORDER BY member_no"
+  ).all();
+  const urls = ["/", "/day", "/about.html", ...results.map((r) => `/?m=${r.member_no}`)];
+  const body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    urls.map((u) => `  <url><loc>${SITE_URL}${u}</loc></url>`).join("\n") + "\n</urlset>\n";
+  return new Response(body, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
+}
+
 /* ============================ クローラ用API ============================ */
 
 function authorized(request, env) {
@@ -1215,6 +1286,8 @@ export default {
     }
 
     if (p.startsWith("/api/")) return new Response("Not found", { status: 404 });
+    if (p === "/sitemap.xml") return cached(request, ctx, () => sitemap(env));
+    if (p === "/" && request.method === "GET" && url.searchParams.has("m")) return cached(request, ctx, () => memberPage(request, env, url));
     return env.ASSETS.fetch(request);
   },
 };
