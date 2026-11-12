@@ -385,11 +385,13 @@
     // 読み仮名が無い人は末尾に回す(並べようがないので)
     if (byKana) shown.sort((a, b) => (a.kana || "んん").localeCompare(b.kana || "んん", "ja"));
     for (const m of shown) {
-      mlist.append(el("button", {
-        type: "button",
+      // 検索エンジンがメンバー別ページ(/?m=番号)をたどれるようリンクにする。押したときは読み直さず選ぶだけ
+      mlist.append(el("a", {
+        href: `/?m=${m.no}`,
+        role: "button",
         class: "tag" + (picked.has(m.no) ? " on" : ""),
         "aria-pressed": picked.has(m.no),
-        onclick: () => toggleMember(m.no),
+        onclick: (ev) => { ev.preventDefault(); toggleMember(m.no); },
       }, m.name));
     }
     if (!shown.length) mlist.append(el("span", { class: "none" }, "該当なし"));

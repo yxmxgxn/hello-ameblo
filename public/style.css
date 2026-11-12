@@ -169,6 +169,7 @@ select {
   font-weight: 400;
   font-size: .85rem;
 }
+a.tag { color: inherit; text-decoration: none; display: inline-block; }
 .tag:hover { border-color: var(--accent); }
 .tag.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 /* グループの一部だけが選ばれている状態 */
