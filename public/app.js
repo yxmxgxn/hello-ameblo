@@ -21,8 +21,10 @@
 
   const fmt = (n) => Number(n || 0).toLocaleString("ja-JP");
   // 1人だけ選んで語が無いときのタブのタイトル。/?m=番号 を開いたとき Worker が書くのと同じ(public/site.json)
+  // 名簿より先に読み終えておく(下の fromUrl は両方そろってから)。間に合わないと、Worker が書いた
+  // その人のタイトルを「ハロプロ アメブロ検索」で上書きしてしまい、Google が本文から変なタイトルを作る
   let site = null;
-  fetch("/site.json").then((r) => r.json()).then((s) => { site = s; }).catch(() => {});
+  const siteReady = fetch("/site.json").then((r) => r.json()).then((s) => { site = s; }).catch(() => {});
   function memberTitle(c) {
     if (!site || !c.m || c.m.includes(",")) return "";
     const m = allMembers.find((x) => x.no === Number(c.m));
@@ -481,7 +483,11 @@
     // 開いたとき・戻ったときも、使えない指定(その人に無いブログなど)を落とした URL に置き換える
     if (pushHistory) history.pushState(null, "", u);
     else if (u.href !== location.href) history.replaceState(null, "", u);
-    document.title = current.q ? `${current.q} - ハロプロ アメブロ検索` : memberTitle(current) || "ハロプロ アメブロ検索";
+    // 1人だけ選んでいてタイトルが作れないときは、今のタイトル(Worker が書いたもの)を残す
+    const mt = memberTitle(current);
+    if (current.q) document.title = `${current.q} - ハロプロ アメブロ検索`;
+    else if (mt) document.title = mt;
+    else if (!(current.m && !current.m.includes(","))) document.title = "ハロプロ アメブロ検索";
 
     periodEl.hidden = !current.d;
     periodT.textContent = current.d ? `期間: ${periodLabel(current.d)}` : "";
@@ -582,5 +588,5 @@
       $("stats").textContent = `収録 ${fmt(s.ingested)} 記事 / ${fmt(s.blogs)} ブログ` +
         (s.total > s.ingested ? `（全 ${fmt(s.total)} 記事を取り込み中）` : "");
     }
-  }).catch(() => {}).finally(fromUrl);
+  }).catch(() => {}).then(() => siteReady).finally(fromUrl);
 })();
