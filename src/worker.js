@@ -1192,6 +1192,7 @@ async function dailyReport(env) {
     env.DB.prepare("SELECT k, v FROM state WHERE k IN ('report_at', 'report_total')"),
   ]);
   const total = tot[0].n;
+  // entries_gone(部分索引)で数える。前は全記事を読んでいた
   const { results: pend } = await env.DB.prepare("SELECT count(*) AS n FROM entries WHERE gone_since IS NOT NULL").all();
   const m = Object.fromEntries(prev.map((r) => [r.k, r.v]));
   const at = now();
@@ -1218,6 +1219,13 @@ async function dailyReport(env) {
     `\n新着 **${fresh.length}** 件（${span}）` +
     (pend[0].n ? `\n⚠ アメブロで見つからず確認待ちの記事 **${pend[0].n}** 件（消していません）` : "");
 
+  // 「前回」の位置は送る前に記録する。送ったあとに記録していたら、11/7 以降その書き込みだけが
+  // 届かず、「前回から」と新着の期間が 11/6 のまま伸び続けた(送信のあとで処理が打ち切られていたとみられる)
+  await env.DB.batch([
+    env.DB.prepare("INSERT OR REPLACE INTO state (k, v) VALUES ('report_at', ?)").bind(at),
+    env.DB.prepare("INSERT OR REPLACE INTO state (k, v) VALUES ('report_total', ?)").bind(String(total)),
+  ]);
+
   const res = await fetch(env.DISCORD_WEBHOOK, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1232,11 +1240,6 @@ async function dailyReport(env) {
     }),
   });
   if (!res.ok) throw new Error(`Discord ${res.status}`);
-
-  await env.DB.batch([
-    env.DB.prepare("INSERT OR REPLACE INTO state (k, v) VALUES ('report_at', ?)").bind(at),
-    env.DB.prepare("INSERT OR REPLACE INTO state (k, v) VALUES ('report_total', ?)").bind(String(total)),
-  ]);
 }
 
 export default {
