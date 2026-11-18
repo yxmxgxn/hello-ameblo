@@ -30,6 +30,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
@@ -60,6 +61,7 @@ def log(*a):
 
 # 削除チェック1ページ(一覧20件)で「見つからない」がこれを超えたら、削除ではなく異常とみなす
 MAX_GONE_PER_PAGE = 5
+DAILY_HOUR_JST = 4   # 1日1回の見回り(書いていないブログの新着・各ブログの新しい方)をする回
 
 
 class Ameblo:
@@ -615,7 +617,7 @@ class Crawler:
                 "cursor_page": None if newest else 2,
             })
 
-    def check_page(self, blog: str, st: dict) -> bool:
+    def check_page(self, blog: str, st: dict, persist: bool = True) -> bool:
         """削除チェックを1ページ分。一覧を1ページ目から順に読み直し、
         「前のページの最古ID 〜 このページの最古ID」にあるのに一覧に無い記事を、記事ページを見て確かめる。"""
         page = int(st.get("page") or 1)
@@ -694,7 +696,8 @@ class Crawler:
             log(f"  {blog}: 見つからないと印を付けていた記事 {len(alive)} 件は残っていた(誤検知)")
         if gone:
             log(f"  {blog}: 見つからない記事 {len(gone)} 件(印と通知だけ。削除は手動で指示)")
-        self.api.call("POST", "/api/crawl/check", {"blog": blog, **nxt})
+        if persist:   # 毎日の「新しい方だけ」の見回りは、一周の続きの位置を動かさない
+            self.api.call("POST", "/api/crawl/check", {"blog": blog, **nxt})
         st.update(nxt)
         return not nxt.get("cycle_done")  # 一周したブログは今回はここまで
 
@@ -733,8 +736,13 @@ def main():
     ap.add_argument("--minutes", type=float, default=50, help="実行時間の上限(分)")
     ap.add_argument("--delay", type=float, default=1.0, help="アメブロへのリクエスト間隔(秒)")
     ap.add_argument("--no-backfill", action="store_true", help="新着だけ見る")
-    ap.add_argument("--check-pages", type=int, default=150,
-                    help="削除チェックで1回に読み直す一覧ページ数(1ページ20件)")
+    ap.add_argument("--check-pages", type=int, default=25,
+                    help="削除チェック(全ページの一周)で1回に読み直す一覧ページ数(1ページ20件)。"
+                         "毎時25ページで全約1万8千ページを30日ほどで一周")
+    ap.add_argument("--recent-pages", type=int, default=3,
+                    help="1日1回、各ブログの新しい方から読み直す一覧ページ数(編集・削除はたいてい新しい記事で起きる)")
+    ap.add_argument("--idle-days", type=int, default=30,
+                    help="最後の記事がこれより前のブログは、新着の確認を1日1回にする")
     ap.add_argument("--delete-ids", help="確認して削除する記事ID(カンマ区切り。all なら印の付いた記事を全部)。指定時は削除だけして終わる")
     ap.add_argument("--import-entries",
                     help="この記事だけ取り込んで終わる。「ブログID:記事ID」か記事のURLをカンマ・空白・改行区切りで")
@@ -794,11 +802,19 @@ def main():
         r = api.call("POST", "/api/crawl/purge", {"blog": b})
         log(f"除外: {b} のデータを削除 ({r.get('deleted', 0)} 件)")
 
+    # 1日1回の回(JST 4時台)だけ、しばらく書いていないブログの新着と、各ブログの新しい方の見回りをする
+    daily = datetime.now(timezone(timedelta(hours=9))).hour == DAILY_HOUR_JST
+    idle_before = (datetime.now(timezone(timedelta(hours=9))) - timedelta(days=a.idle_days)).strftime("%Y-%m-%dT%H:%M")
     try:
-        log(f"新着チェック: {len(blogs)} ブログ")
+        quiet = [] if daily else [b for b in blogs if (state.get(b) or {}).get("newest_pub")
+                                  and state[b]["newest_pub"] < idle_before]
+        log(f"新着チェック: {len(blogs) - len(quiet)} ブログ" +
+            (f"（{a.idle_days}日以上書いていない {len(quiet)} ブログは1日1回）" if quiet else ""))
         for b in blogs:
             if not cr.budget_left():
                 break
+            if b in quiet:
+                continue
             cr.update_new(b, state.setdefault(b, {"blog": b}))
 
         blogs = [b for b in blogs if b not in cr.skip]
@@ -815,6 +831,17 @@ def main():
                 if not cr.check_page(b, checks.setdefault(b, {"blog": b})):
                     have.remove(b)
         log(f"削除チェック: {a.check_pages - left} ページ確認 / 消えたかも(新たに印を付けた) {cr.suspect} 件")
+        if daily:
+            n = 0
+            for b in [b for b in blogs if int((state.get(b) or {}).get("ingested") or 0) > 0]:
+                tmp = {"page": 1, "prev_min": None}
+                for _ in range(a.recent_pages):
+                    if not cr.budget_left():
+                        break
+                    n += 1
+                    if not cr.check_page(b, tmp, persist=False):
+                        break
+            log(f"新しい方の見回り: {n} ページ（各ブログ {a.recent_pages} ページまで）")
 
         if not a.no_backfill:
             state = {b["blog"]: b for b in api.call("GET", "/api/crawl/state")["blogs"]}

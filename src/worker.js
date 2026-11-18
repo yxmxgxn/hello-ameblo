@@ -659,7 +659,11 @@ function authorized(request, env) {
 const now = () => new Date().toISOString();
 
 async function crawlState(env) {
-  const { results } = await env.DB.prepare("SELECT * FROM blogs").all();
+  // newest_pub: そのブログの一番新しい記事の公開日時。しばらく書いていないブログの新着確認を間引くのに使う
+  // ((blog, published) の索引を1ブログ1回たどるだけ)
+  const { results } = await env.DB.prepare(
+    "SELECT b.*, (SELECT max(published) FROM entries e WHERE e.blog = b.blog) AS newest_pub FROM blogs b"
+  ).all();
   return json({ blogs: results });
 }
 
