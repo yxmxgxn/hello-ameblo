@@ -1203,8 +1203,10 @@ async function dailyReport(env) {
   const { results: fresh } = await env.DB.prepare(
     "SELECT e.entry_id, e.blog, e.title, e.published, ifnull(mb.name, e.blog) AS name FROM entries e " +
     "LEFT JOIN members mb ON mb.member_no = e.member_no " +
-    "WHERE e.fetched_at > ? AND e.published >= ? ORDER BY e.published"
-  ).bind(since, jst(Date.now() - 3 * 24 * 3600e3)).all();
+    // 新着 = 前回のレポートのあとに取り込んだ記事のうち、公開が前回の24時間前より後のもの(遡りで入った古い記事は除く)。
+    // 新しい順に並べ、多いときは新しい方から REPORT_LIST_MAX 件
+    "WHERE e.fetched_at > ? AND e.published >= ? ORDER BY e.published DESC"
+  ).bind(since, jst(Date.parse(since) - 24 * 3600e3)).all();
 
   const md = (s) => String(s || "").replace(/[\[\]]/g, "");
   const lines = fresh.slice(0, REPORT_LIST_MAX).map((r) =>
