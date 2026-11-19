@@ -349,9 +349,22 @@ GROUPNO = {
     1: "平家みちよ", 2: "モーニング娘。", 3: "太陽とシスコムーン", 4: "ココナッツ娘。",
     5: "カントリー娘。", 6: "メロン記念日", 7: "Berryz工房", 8: "松浦亜弥", 9: "℃-ute",
     10: "真野恵里菜", 11: "アンジュルム", 12: "Juice=Juice", 13: "カントリー・ガールズ",
-    14: "こぶしファクトリー", 15: "つばきファクトリー", 16: "BEYOOOOONDS",
+    15: "つばきファクトリー", 16: "BEYOOOOONDS",
     17: "OCHA NORMA", 18: "ロージークロニクル",
+    # 14: こぶしファクトリー は選択肢に出さない(スプシにはあるが、ここに入れない)
+    # 101〜: OG の見出し(インスタ検索の J.P ROOM・UP-FRONT CREATE・UP-FRONT PROMOTION と同じ)。スプシのグループ番号ではない
+    101: "J.P ROOM", 102: "UP-FRONT CREATE", 103: "UP-FRONT PROMOTION",
 }
+# OG の見出しに入る人(スプシの名前で)。hello-insta の crawler/fetch.py の OG_ORDER と同じものを保つ(増減時は両方直す)。
+# 現役グループの人は入れない(現役は現役のグループのまま)。UP-FRONT PROMOTION は所属(affiliation)が upfrontpromotion の人
+OG_GROUPS = {
+    101: ["譜久村聖", "竹内朱莉", "石田亜佑美", "佐藤優樹", "宮崎由加", "宮本佳林",
+          "植村あかり", "佐々木莉佳子", "稲場愛香", "森戸知沙希", "小関舞", "浅倉樹々"],
+    102: ["安倍なつみ", "飯田圭織", "石川梨華", "勝田里奈", "熊井友理奈", "里田まい", "鈴木愛理",
+          "須藤茉麻", "高橋愛", "田中れいな", "中澤裕子", "中島早貴", "牧野真莉愛", "真野恵里菜",
+          "矢口真里", "矢島舞美", "保田圭", "山岸理子", "飯窪春菜", "辻希美", "藤本美貴"],
+}
+UPFRONT_PROMOTION_AFF = "upfrontpromotion"
 # 現役グループ(affiliation の値)。これ以外(jproom/free/retirement等)は現役ではない
 ACTIVE_AFFILIATIONS = {
     "morningmusume", "angerme", "juicejuice", "tsubakifactory",
@@ -399,6 +412,7 @@ def load_targets(src: str):
     names, targets = {}, {}
     groups: dict[int, list[int]] = {}   # メンバー番号 → グループ番号
     active: set[int] = set()
+    promo: set[int] = set()             # 所属が UP-FRONT PROMOTION の人
 
     for r in rows:
         r = (r + [""] * 5)[:5]
@@ -410,6 +424,8 @@ def load_targets(src: str):
         if platform == "affiliation":
             if bid in ACTIVE_AFFILIATIONS:
                 active.add(num)
+            if bid == UPFRONT_PROMOTION_AFF:
+                promo.add(num)
             continue
         if platform in ("GroupNo", "SubGroup"):
             if bid.isdigit() and int(bid) in GROUPNO and int(bid) not in groups.get(num, []):
@@ -430,6 +446,14 @@ def load_targets(src: str):
         names[num] = name
         targets[(blog, theme)] = num
 
+    # OG の見出し(現役の人は入れない)
+    og_of = {re.sub(r"\s", "", n): g for g, ns in OG_GROUPS.items() for n in ns}
+    for k, v in names.items():
+        if k in active:
+            continue
+        g = og_of.get(re.sub(r"\s", "", v)) or (103 if k in promo else None)
+        if g and g not in groups.setdefault(k, []):
+            groups[k].append(g)
     members = [{
         "member_no": k,
         "name": v,
