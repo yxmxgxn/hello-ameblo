@@ -373,7 +373,7 @@
   /* ---------------- いつから・いつまで(年・月を選ぶ) ---------------- */
   // 日はカレンダーで選ぶので、ここは年と月だけ。年だけでも選べる(いつからはその年の初め、いつまではその年の終わり)。
   // メンバーを選んでいるときは、投稿のある年・月だけ選べる。選んでいないときは、全部の年・月から選べる(いつも出しておく)
-  const FIRST_YEAR = 2004;   // アメブロが始まった年
+  const FIRST_YEAR = 2007;   // このサイトに記事のある、いちばん古い年
   const boxOf = (id) => document.querySelector(`.dsel[data-for="${id}"]`);
   function opt(sel, value, text) { sel.append(el("option", { value }, text)); }
   function syncDates() {
