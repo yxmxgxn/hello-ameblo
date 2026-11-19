@@ -23,8 +23,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  /* アメブロ(ブログ本体)と同じ指定。Mac はシステムフォント、Windows などは各自のブラウザの Sans Serif 設定になる */
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  /* アメブロ(ブログ本体)と同じ指定に、Noto Sans JP を足した。Mac はシステムフォント。Noto Sans JP が入っている PC はそれ
+     (ウェブからは読み込まない)。それ以外は各自のブラウザの Sans Serif 設定になる */
+  font-family: -apple-system, BlinkMacSystemFont, "Noto Sans JP", sans-serif;
   line-height: 1.7;
 }
 main, .site-head, .site-foot { max-width: 760px; margin: 0 auto; padding: 0 16px; }
