@@ -69,13 +69,18 @@
 
   const memberOf = (no) => allMembers.find((m) => m.no === no);
 
-  // ブログの表示名。1人だけのブログは「名前（ブログ名）」、何人かで書くブログはブログ名だけ
+  // ブログの表示名。1人だけのブログは「名前（ブログ名）」、何人かで書くブログはブログ名だけ。
+  // ブログ名の引用符は半角の「'」にそろえる(「モーニング娘。‘26」「モーニング娘。’26」が混ざっているため)。
+  // 同じ名前のブログが2つあるとき(つばきファクトリーの旧・新)は、ブログのIDを添えて区別する
+  const tidy = (s) => String(s || "").replace(/[‘’]/g, "'");
   const writersOf = (id) => allMembers.filter((m) => m.blogs.some((b) => b.id === id));
   function blogName(id) {
     const b = allBlogs.find((x) => x.id === id);
     const w = writersOf(id);
-    const title = b ? b.title : id;
-    return w.length === 1 ? `${w[0].name}（${title}）` : title;
+    const title = tidy(b ? b.title : id);
+    if (w.length === 1) return `${w[0].name}（${title}）`;
+    const same = allBlogs.filter((x) => tidy(x.title) === title && writersOf(x.id).length !== 1).length > 1;
+    return same ? `${title}（${id}）` : title;
   }
 
   // いまの条件を文章にする(「チャーハン ／ 竹内朱莉・田村芽実 ／ 2016年」)。何で絞っているかを画面に出すため
@@ -144,10 +149,10 @@
     const meta = el("p", { class: "meta" },
       r.date.slice(0, 10) === today ? el("span", { class: "new" }, "NEW") : null,
       el("time", {}, r.date),
-      el("span", { class: "who" }, r.member || r.blog_title),
+      el("span", { class: "who" }, r.member || tidy(r.blog_title)),
       // ブログのトップと、その人のテーマ(グループブログの中の個人ページ)へ飛べるようにする
       r.blog_title !== r.member
-        ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener noreferrer" }, r.blog_title)
+        ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener noreferrer" }, tidy(r.blog_title))
         : null,
       r.theme_url ? el("a", { href: r.theme_url, target: "_blank", rel: "noopener noreferrer" }, `テーマ：${r.theme}`) : null);
 
