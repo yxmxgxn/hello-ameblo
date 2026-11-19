@@ -216,7 +216,7 @@
         await explainEmpty(current);
       } else {
         const cond = condText(current);
-        statusEl.textContent = (cond ? cond + " ／ " : current.q ? "" : "新着 ") +
+        statusEl.textContent = (cond ? cond + " ／ " : "") +
           `${fmt(shown)} 件表示${cursor ? "（まだあります）" : ""}`;
       }
       if (blogNote) {
@@ -264,7 +264,6 @@
   // keepView: カレンダーの ‹ › で月を動かしたとき(出す月を期間から決め直さない)
   async function loadCalendar(keepView) {
     const my = ++calNo;
-    $("cal-hint").hidden = picked.size > 0;
     if (!picked.size) { calEl.hidden = true; cal = null; syncDates(); return; }
     // 検索語があれば、カレンダーの数字は「その語を含む記事の数」になる
     const base = `/api/calendar?m=${current.m}&b=${encodeURIComponent(current.b)}` +
