@@ -465,36 +465,13 @@
       label, el("span", { class: "n" }, n ? `${n}/${mem.length}` : String(mem.length)));
   }
 
-  // グループのボタン(インスタ検索と同じ並び)。ここに入らないグループは、「そのほか」のプルダウンへ(あいうえお順)
-  const GROUP_BUTTONS = ["モーニング娘。", "アンジュルム", "Juice=Juice", "つばきファクトリー", "BEYOOOOONDS",
-    "OCHA NORMA", "ロージークロニクル", "J.P ROOM", "UP-FRONT CREATE", "UP-FRONT PROMOTION"];
-  // プルダウンのグループの読み(あいうえお順に並べるため)。ここに無い新しいグループは、名前の順で最後に出る
-  const GROUP_KANA = { "カントリー・ガールズ": "かんとりーがーるず", "カントリー娘。": "かんとりーむすめ",
-    "℃-ute": "きゅーと", "Berryz工房": "べりーずこうぼう", "メロン記念日": "めろんきねんび" };
-  const kanaOf = (g) => GROUP_KANA[g.name] || "んん" + g.name;
-
   function drawPanel() {
     const q = msearch.value.trim();
     glist.textContent = "";
     glist.append(groupTag("すべて", pool(), gView === null, () => setView(null)));
     const groups = allGroups.filter((g) => inGroup(g).length);   // 現役のみだと誰も残らないグループは出さない
     if (gView !== null && !groups.some((g) => g.no === gView)) gView = null;
-    for (const name of GROUP_BUTTONS) {
-      const g = groups.find((x) => x.name === name);
-      if (g) glist.append(groupTag(g.name, inGroup(g), gView === g.no, () => setView(g.no)));
-    }
-    const others = groups.filter((g) => !GROUP_BUTTONS.includes(g.name))
-      .sort((a, b) => kanaOf(a).localeCompare(kanaOf(b), "ja"));
-    const sel = $("gother");
-    sel.hidden = !others.length;
-    sel.textContent = "";
-    sel.append(el("option", { value: "" }, "そのほかのグループ"));
-    for (const g of others) {
-      const n = inGroup(g).length;
-      sel.append(el("option", { value: String(g.no) }, `${g.name}（${n}）`));
-    }
-    sel.value = others.some((g) => g.no === gView) ? String(gView) : "";
-    sel.classList.toggle("on", !!sel.value);
+    for (const g of groups) glist.append(groupTag(g.name, inGroup(g), gView === g.no, () => setView(g.no)));
 
     mlist.textContent = "";
     const base = gView === null ? pool() : inGroup({ no: gView });
@@ -543,8 +520,6 @@
       queueSearch();
     };
   }
-
-  $("gother").addEventListener("change", (e) => { if (e.target.value) setView(Number(e.target.value)); });
 
   function setView(no) {
     gView = no;

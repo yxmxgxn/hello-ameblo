@@ -176,9 +176,6 @@ a.tag { color: inherit; text-decoration: none; display: inline-block; }
 /* グループの一部だけが選ばれている状態 */
 .tag.part { border-color: var(--accent); color: var(--accent); }
 .tag .n { opacity: .7; font-size: .78em; margin-left: 3px; font-variant-numeric: tabular-nums; }
-.gother { margin-top: 8px; }
-.gother[hidden] { display: none; }
-.gother.on { border-color: var(--accent); color: var(--accent); }
 .taglist .none { color: var(--muted); font-size: .85rem; }
 
 /* ---- 日付で見る ---- */
