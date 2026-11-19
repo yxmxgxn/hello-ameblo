@@ -514,6 +514,8 @@
     for (const b of blogs) bsel.append(el("option", { value: b.id }, b.name));
     bsel.value = cur;
     bsel.classList.toggle("on", !!cur);
+    // 選べるブログが1つ以下なら、絞る意味がないので出さない
+    bsel.parentElement.hidden = blogs.length <= 1;
 
     // グループに絞っている時だけ、見えている人をまとめて選べる
     const allBtn = $("pick-all");
