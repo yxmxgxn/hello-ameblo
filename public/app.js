@@ -265,6 +265,8 @@
   async function loadCalendar(keepView) {
     const my = ++calNo;
     $("cal-hint").hidden = picked.size > 0;
+    // いつから・いつまでも、メンバーを選んでいるときだけ出す
+    document.querySelectorAll(".dfield").forEach((e) => { e.hidden = !picked.size; });
     if (!picked.size) { calEl.hidden = true; cal = null; syncDates(); return; }
     // 検索語があれば、カレンダーの数字は「その語を含む記事の数」になる
     const base = `/api/calendar?m=${current.m}&b=${encodeURIComponent(current.b)}` +
@@ -372,15 +374,13 @@
 
   /* ---------------- いつから・いつまで(年・月を選ぶ) ---------------- */
   // 日はカレンダーで選ぶので、ここは年と月だけ。年だけでも選べる(いつからはその年の初め、いつまではその年の終わり)。
-  // 選べるのは投稿のある年・月だけ。メンバーを選んでいないときは、全部の年・月から選ぶ
-  const FIRST_YEAR = 2004;   // アメブロが始まった年
+  // 選べるのは投稿のある年・月だけ(メンバーを選んでいないときは、いつから・いつまでは出さない)
   const boxOf = (id) => document.querySelector(`.dsel[data-for="${id}"]`);
   function opt(sel, value, text) { sel.append(el("option", { value }, text)); }
   function syncDates() {
     const all = cal ? [...cal.months.keys()] : [];
     let years = [...new Set(all.map((k) => k.slice(0, 4)))];
-    if (!cal) { years = []; for (let y = new Date().getFullYear(); y >= FIRST_YEAR; y--) years.push(String(y)); }
-    else years.reverse();   // 新しい年を上に
+    years.reverse();   // 新しい年を上に
     for (const id of ["from", "to"]) {
       // 月・日を押して選んだ期間(d)は、いつから・いつまでの両方にその年・月を出す
       const v = current.d ? current.d.slice(0, 7) : current[id];
@@ -570,6 +570,8 @@
       to: (keepPeriod && current ? current.to : "") || "",
       order: orderEl.value,
     };
+    // 期間はメンバーを選んでいるときだけ(日付で見るのも、メンバーを選んでいるときだけなので)
+    if (!picked.size) current.d = current.from = current.to = "";
     cursor = null;
 
     const u = new URL(location.href);
@@ -640,6 +642,19 @@
   $("pick-close").addEventListener("click", () => {
     panel.hidden = true;
     openBtn.setAttribute("aria-expanded", "false");
+  });
+  // リセット: メンバー・ブログ・検索語・期間・並び・現役のみを最初の状態に戻す
+  $("reset").addEventListener("click", () => {
+    picked.clear();
+    blogPick = "";
+    gView = null;
+    qEl.value = "";
+    msearch.value = "";
+    orderEl.value = "";
+    actEl.checked = true;
+    drawChips();
+    drawPanel();
+    search(true, false);
   });
   $("pick-clear").addEventListener("click", () => {
     picked.clear();

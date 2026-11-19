@@ -224,6 +224,7 @@ a.tag { color: inherit; text-decoration: none; display: inline-block; }
 
 /* いつから・いつまで(年と月のプルダウン) */
 .dfield { display: flex; align-items: center; gap: 6px; }
+.dfield[hidden] { display: none; }
 .dsel { display: inline-flex; gap: 2px; }
 .dsel select:disabled { opacity: .5; }
 
