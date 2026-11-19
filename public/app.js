@@ -3,12 +3,11 @@
   const form = $("f"), qEl = $("q"), actEl = $("act"), orderEl = $("order");
   const statusEl = $("status"), list = $("results"), moreBtn = $("more");
   const calEl = $("cal"), yearsEl = $("years"), monthEl = $("month");
-  const periodEl = $("period"), periodT = $("period-t");
   const panel = $("panel"), openBtn = $("pick-open"), pickLabel = $("pick-label");
   const glist = $("glist"), mlist = $("mlist"), chipsEl = $("chips");
   const msearch = $("msearch"), mcount = $("mcount");
 
-  let current = null;       // 表示中の条件 {q, m, b, act, d, order}
+  let current = null;       // 表示中の条件 {q, m, b, act, d, from, to, order}。d は押して選んだ月・日、from / to はいつから・いつまで
   let cursor = null;
   let busy = false;
   let cal = null;           // 日付で見る: {key, months: Map(ym→件数), ym, days: Map(日→件数)}
@@ -95,10 +94,11 @@
       parts.push("ハロプロ現役のみ");
     }
     if (c.d) parts.push(periodLabel(c.d));
+    else if (c.from || c.to) parts.push(`${c.from ? periodLabel(c.from) : ""}〜${c.to ? periodLabel(c.to) : ""}`);
     return parts.join(" ／ ");
   }
   // 検索語以外の絞り込みがあるか(0件のとき、絞り込みのせいかを確かめるため)
-  const narrowed = (c) => !!(c.m || c.b || c.d || c.act);
+  const narrowed = (c) => !!(c.m || c.b || c.d || c.from || c.to || c.act);
   let blogNote = false;   // 2人目を足してブログの指定が外れたことを、次の表示で一度だけ知らせる
 
   // 0件のとき: 絞り込みを全部外して1件でもあるかだけ見る。どの記事にも無いのか、条件で外れたのかを分けて出す
@@ -126,7 +126,7 @@
           picked.clear();
           blogPick = "";
           actEl.checked = false;
-          current = { ...current, d: "" };
+          current = { ...current, d: "", from: "", to: "" };
           drawChips();
           drawPanel();
           search(true, false);
@@ -173,6 +173,8 @@
     if (c.b) p.set("b", c.b);
     p.set("act", c.act ? "1" : "0");
     if (c.d) p.set("d", c.d);
+    if (c.from) p.set("from", c.from);
+    if (c.to) p.set("to", c.to);
     if (c.order) p.set("order", c.order);
     return p;
   }
@@ -234,47 +236,87 @@
   /* ---------------- 日付で見る ---------------- */
 
   const level = (n, max) => (n ? Math.min(4, Math.ceil((n / max) * 4)) : 0);
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const ymNo = (s) => +s.slice(0, 4) * 12 + (+s.slice(5, 7) - 1);   // "YYYY-MM" → 月の番号
+  const ymStr = (n) => `${Math.floor(n / 12)}-${pad2(n % 12 + 1)}`;
+  const lastDay = (y, m) => new Date(y, m, 0).getDate();
+  let view = "";     // カレンダーに出している月 "YYYY-MM"
+  let calNo = 0;     // 後から出した条件の結果を優先する
 
-  // カレンダーは1人だけ選んでいる時に出す(全員分の集計は重いし、見ても使いどころがない)
-  async function loadCalendar() {
-    $("cal-hint").hidden = picked.size === 1;
-    if (picked.size !== 1) { calEl.hidden = true; cal = null; return; }
+  // いつから・いつまでで絞った範囲(月の番号)。月や日を押して選んだ期間(d)では、表とカレンダーは絞らない
+  function span() {
+    if (!current.from && !current.to) return null;
+    const f = current.from, t = current.to;
+    return {
+      lo: f ? ymNo(f.length === 4 ? f + "-01" : f) : -Infinity,
+      hi: t ? ymNo(t.length === 4 ? t + "-12" : t) : Infinity,
+    };
+  }
+  // 表とカレンダーに出す、投稿のある月(いつから・いつまでの範囲の中だけ)
+  function shownYms() {
+    if (!cal) return [];
+    const r = span();
+    return [...cal.months.keys()].filter((k) => !r || (ymNo(k) >= r.lo && ymNo(k) <= r.hi));
+  }
+
+  // メンバーを選んでいるときに出す(誰も選んでいないときの全員分の集計は重い)。
+  // 年×月の表は1人のときだけ(何人も混ぜた月ごとの数は見ても使いどころがない)。日のカレンダーは何人でも出す。
+  // keepView: カレンダーの ‹ › で月を動かしたとき(出す月を期間から決め直さない)
+  async function loadCalendar(keepView) {
+    const my = ++calNo;
+    $("cal-hint").hidden = picked.size > 0;
+    if (!picked.size) { calEl.hidden = true; cal = null; syncDates(); return; }
     // 検索語があれば、カレンダーの数字は「その語を含む記事の数」になる
     const base = `/api/calendar?m=${current.m}&b=${encodeURIComponent(current.b)}` +
       (current.q ? `&q=${encodeURIComponent(current.q)}` : "");
     const key = `${current.m}@${current.b}@${current.q}`;
-    const ym = current.d.length >= 7 ? current.d.slice(0, 7) : "";
     if (!cal || cal.key !== key) {
       const r = await (await fetch(base)).json();
+      if (my !== calNo) return;
       cal = { key, months: new Map(r.months), ym: "", days: new Map() };
     }
-    if (ym && cal.ym !== ym) {
-      const r = await (await fetch(`${base}&ym=${ym}`)).json();
-      cal.days = new Map(r.days);
+    // 出す月: 押して選んだ月・日 > いつから > いま出している月。投稿のある範囲の中に収める
+    let v = view;
+    if (!keepView) {
+      if (current.d.length >= 7) v = current.d.slice(0, 7);
+      else if (current.from) v = current.from.length === 4 ? current.from + "-01" : current.from;
     }
-    cal.ym = ym;
-    $("cal-note").textContent = current.q ? `濃いほど「${current.q}」が多い月` : "濃いほど投稿が多い月";
+    const list = shownYms();
+    if (list.length) {
+      const n = v ? ymNo(v) : Infinity;
+      v = ymStr(Math.min(Math.max(n, ymNo(list[0])), ymNo(list[list.length - 1])));
+    }
+    view = v;
+    if (view && cal.ym !== view) {
+      const r = await (await fetch(`${base}&ym=${view}`)).json();
+      if (my !== calNo) return;
+      cal.days = new Map(r.days);
+      cal.ym = view;
+    }
+    syncDates();
     drawYears();
     drawMonth();
     calEl.hidden = cal.months.size === 0;
   }
 
+  // 年が左・月が上の表。押すとその月だけになり、もう一度押すと外れる
   function drawYears() {
     yearsEl.textContent = "";
-    const yms = [...cal.months.keys()];
-    if (!yms.length) return;
-    const max = Math.max(...cal.months.values());
+    const yms = shownYms();
+    yearsEl.hidden = picked.size !== 1 || !yms.length;
+    if (yearsEl.hidden) return;
+    const max = Math.max(...yms.map((k) => cal.months.get(k)));
     const y0 = +yms[0].slice(0, 4), y1 = +yms[yms.length - 1].slice(0, 4);
     yearsEl.append(el("span"));
     for (let m = 1; m <= 12; m++) yearsEl.append(el("span", { class: "mh" }, String(m)));
     for (let y = y1; y >= y0; y--) {   // 新しい年を上に
       yearsEl.append(el("span", { class: "yl" }, String(y)));
       for (let m = 1; m <= 12; m++) {
-        const ym = `${y}-${String(m).padStart(2, "0")}`;
-        const n = cal.months.get(ym) || 0;
+        const ym = `${y}-${pad2(m)}`;
+        const n = yms.includes(ym) ? cal.months.get(ym) : 0;
         yearsEl.append(el("button", {
           type: "button",
-          class: `l${level(n, max)}` + (current.d.startsWith(ym) ? " on" : ""),
+          class: `l${level(n, max)}` + (current.d.startsWith(ym) ? " on" : "") + (ym === view ? " cur" : ""),
           title: `${y}年${m}月 ${fmt(n)}件`,
           "aria-label": `${y}年${m}月 ${fmt(n)}件`,
           disabled: !n,
@@ -284,47 +326,97 @@
     }
   }
 
+  // 日のカレンダー。‹ › は投稿がある月へ移るだけ(絞り込みは変えない)。日を押すとその日だけになる
   function drawMonth() {
     monthEl.textContent = "";
-    monthEl.hidden = !cal.ym;
-    if (!cal.ym) return;
-    const [y, m] = cal.ym.split("-").map(Number);
-    const yms = [...cal.months.keys()];
-    const i = yms.indexOf(cal.ym);
-    const prev = i > 0 ? yms[i - 1] : null;               // 投稿のある月だけ辿る
-    const next = i >= 0 && i < yms.length - 1 ? yms[i + 1] : null;
+    if (!view) return;
+    const [y, m] = view.split("-").map(Number);
+    const yms = shownYms();
+    const cur = ymNo(view);
+    const prev = [...yms].reverse().find((k) => ymNo(k) < cur) || null;
+    const next = yms.find((k) => ymNo(k) > cur) || null;
+    const go = (to) => { view = to; loadCalendar(true).catch(() => {}); };
 
     monthEl.append(el("div", { class: "month-nav" },
-      el("button", { type: "button", disabled: !prev, onclick: () => pick(prev), "aria-label": "前の投稿がある月" }, "‹"),
-      el("strong", {}, `${y}年${m}月（${fmt(cal.months.get(cal.ym))}件）`),
-      el("button", { type: "button", disabled: !next, onclick: () => pick(next), "aria-label": "次の投稿がある月" }, "›")));
+      el("button", { type: "button", disabled: !prev, onclick: () => go(prev), "aria-label": "前の投稿がある月" }, "‹"),
+      el("strong", {}, `${y}年${m}月（${fmt(cal.months.get(view))}件）`),
+      el("button", { type: "button", disabled: !next, onclick: () => go(next), "aria-label": "次の投稿がある月" }, "›")));
 
     const grid = el("div", { class: "days" });
     ["日", "月", "火", "水", "木", "金", "土"].forEach((w) => grid.append(el("span", { class: "wd" }, w)));
     const first = new Date(y, m - 1, 1).getDay();
     for (let k = 0; k < first; k++) grid.append(el("span"));
-    const last = new Date(y, m, 0).getDate();
+    const last = lastDay(y, m);
     const max = Math.max(1, ...cal.days.values());
     for (let dd = 1; dd <= last; dd++) {
-      const day = `${cal.ym}-${String(dd).padStart(2, "0")}`;
+      const day = `${view}-${pad2(dd)}`;
       const n = cal.days.get(day) || 0;
       grid.append(el("button", {
         type: "button",
         class: `l${level(n, max)}` + (current.d === day ? " on" : ""),
-        disabled: !n,
+        disabled: !n && current.d !== day,
         "aria-label": `${m}月${dd}日 ${n}件`,
         onclick: () => pick(day),
-      }, String(dd), n ? el("small", {}, `/${n}件`) : null));   // 日付の横に件数(縦に積むより低く収まる)
+      }, String(dd), n ? el("small", {}, "/" + n, el("span", { class: "u" }, "件")) : null));   // 日付の横に件数
     }
     monthEl.append(grid);
   }
 
-  // 月か日を選ぶ(選択中の日をもう一度押したら月に戻す、選択中の月なら外す)
+  // 月か日を押す(選択中のものをもう一度押したら外す)。いつから・いつまでの指定はこれに置き換わる
   function pick(d) {
     if (!d) return;
-    if (current.d === d) d = d.length === 10 ? d.slice(0, 7) : "";
-    current.d = d;
+    current.d = current.d === d ? "" : d;
+    current.from = current.to = "";
     search(true, true);
+  }
+
+  /* ---------------- いつから・いつまで(年・月を選ぶ) ---------------- */
+  // 日はカレンダーで選ぶので、ここは年と月だけ。年だけでも選べる(いつからはその年の初め、いつまではその年の終わり)。
+  // 選べるのは投稿のある年・月だけ。メンバーを選んでいないときは、全部の年・月から選ぶ
+  const FIRST_YEAR = 2004;   // アメブロが始まった年
+  const boxOf = (id) => document.querySelector(`.dsel[data-for="${id}"]`);
+  function opt(sel, value, text) { sel.append(el("option", { value }, text)); }
+  function syncDates() {
+    const all = cal ? [...cal.months.keys()] : [];
+    let years = [...new Set(all.map((k) => k.slice(0, 4)))];
+    if (!cal) { years = []; for (let y = new Date().getFullYear(); y >= FIRST_YEAR; y--) years.push(String(y)); }
+    else years.reverse();   // 新しい年を上に
+    for (const id of ["from", "to"]) {
+      // 月・日を押して選んだ期間(d)は、いつから・いつまでの両方にその年・月を出す
+      const v = current.d ? current.d.slice(0, 7) : current[id];
+      const vy = v.slice(0, 4), vm = v.length >= 7 ? String(+v.slice(5, 7)) : "";
+      const box = boxOf(id), y = box.querySelector(".y"), m = box.querySelector(".m");
+      y.textContent = "";
+      opt(y, "", "年");
+      const ys = years.includes(vy) || !vy ? years : [...years, vy].sort().reverse();
+      for (const k of ys) opt(y, k, `${k}年`);
+      m.textContent = "";
+      opt(m, "", "月");
+      let ms = cal ? all.filter((k) => k.slice(0, 4) === vy).map((k) => String(+k.slice(5, 7)))
+        : (vy ? ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"] : []);
+      if (vm && !ms.includes(vm)) ms = [...ms, vm].sort((a, b) => a - b);
+      for (const k of ms) opt(m, k, `${k}月`);
+      m.disabled = !vy;
+      y.value = vy;
+      m.value = vm;
+    }
+  }
+  function dateChanged(id, changedYear) {
+    const val = (k) => {
+      const box = boxOf(k), y = box.querySelector(".y").value;
+      let m = box.querySelector(".m").value;
+      // 年を変えて、その年に投稿のない月になったら、月は外す
+      if (k === id && changedYear && m && cal && !cal.months.has(`${y}-${pad2(+m)}`)) m = "";
+      return y ? y + (m ? "-" + pad2(+m) : "") : "";
+    };
+    current.from = val("from");
+    current.to = val("to");
+    current.d = "";
+    search(true, true);
+  }
+  for (const id of ["from", "to"]) {
+    boxOf(id).querySelector(".y").addEventListener("change", () => dateChanged(id, true));
+    boxOf(id).querySelector(".m").addEventListener("change", () => dateChanged(id, false));
   }
 
   /* ---------------- メンバー選択 ---------------- */
@@ -459,7 +551,7 @@
 
   /* ---------------- 条件の反映 ---------------- */
 
-  // keepPeriod: 期間(d)を引き継ぐか。メンバーを変えた時は外す
+  // keepPeriod: 期間(d・いつから・いつまで)を引き継ぐか。メンバーを変えた時は外す
   function search(pushHistory, keepPeriod) {
     const bad = tooMuch(qEl.value.trim());
     if (bad) {
@@ -474,6 +566,8 @@
       b: picked.size <= 1 ? blogPick : "",
       act: actEl.checked,
       d: (keepPeriod && current ? current.d : "") || "",
+      from: (keepPeriod && current ? current.from : "") || "",
+      to: (keepPeriod && current ? current.to : "") || "",
       order: orderEl.value,
     };
     cursor = null;
@@ -488,9 +582,6 @@
     if (current.q) document.title = `${current.q} - ハロプロ アメブロ検索`;
     else if (mt) document.title = mt;
     else if (!(current.m && !current.m.includes(","))) document.title = "ハロプロ アメブロ検索";
-
-    periodEl.hidden = !current.d;
-    periodT.textContent = current.d ? `期間: ${periodLabel(current.d)}` : "";
 
     loadCalendar().catch(() => { calEl.hidden = true; });
     run(false);
@@ -510,7 +601,8 @@
     drawChips();
     drawPanel();
     const d = p.get("d") || "";
-    current = { d: /^\d{4}(-\d{2}(-\d{2})?)?$/.test(d) ? d : "" };
+    const ymOk = (v) => (/^\d{4}(-\d{2})?$/.test(v || "") ? v : "");
+    current = { d: /^\d{4}(-\d{2}(-\d{2})?)?$/.test(d) ? d : "", from: ymOk(p.get("from")), to: ymOk(p.get("to")) };
     search(false, true);
   }
 
@@ -558,7 +650,6 @@
   });
   // 続きが無いのに押されたら何もしない(cursor 無しで読むと先頭のページを足してしまう)
   moreBtn.addEventListener("click", () => { if (cursor) run(true); });
-  $("period-x").addEventListener("click", () => { current.d = ""; search(true, true); });
   window.addEventListener("popstate", fromUrl);
 
 

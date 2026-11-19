@@ -2,9 +2,10 @@
  * アメブロ検索 Worker (Static Assets 併用)
  *
  * 公開API
- *   GET /api/search?q=&m=&b=&g=&act=&d=&order=&cursor=  本文・タイトルの全文検索。前後数十字だけ返し、本文全体は返さない
+ *   GET /api/search?q=&m=&b=&g=&act=&d=&from=&to=&order=&cursor=  本文・タイトルの全文検索。前後数十字だけ返し、本文全体は返さない。
+ *       期間は d(年・月・日の前方一致)か、from / to(年か年-月)
  *   GET /api/members                      絞り込み用のメンバー一覧と収録状況
- *   GET /api/calendar?m=&b=&ym=           日付で見る用の月別・日別の件数
+ *   GET /api/calendar?m=&b=&ym=           日付で見る用の月別・日別の件数(m はカンマ区切りで何人でも)
  *
  * クローラ用API (Authorization: Bearer <CRAWL_TOKEN>。未設定なら存在しないことにする)
  *   GET  /api/crawl/state      ブログごとの進み具合
@@ -184,6 +185,14 @@ async function handleSearch(url, env) {
   // 期間: "2016" / "2016-03" / "2016-03-05"。published の前方一致(〜 d+"~" 未満)で引く
   const dRaw = url.searchParams.get("d") || "";
   const d = /^\d{4}(-\d{2}(-\d{2})?)?$/.test(dRaw) ? dRaw : "";
+  // いつから・いつまで: "2016" / "2016-03"。from はその年(月)の初めから、to はその年(月)の終わりまで。d があれば d を使う
+  const ymOk = (v) => (/^\d{4}(-\d{2})?$/.test(v) ? v : "");
+  const lo = d || ymOk(url.searchParams.get("from") || "");
+  const hi = d ? d + "~" : (ymOk(url.searchParams.get("to") || "") ? url.searchParams.get("to") + "~" : "");
+  const period = (w, bd) => {
+    if (lo) { w.push("e.published >= ?"); bd.push(lo); }
+    if (hi) { w.push("e.published < ?"); bd.push(hi); }
+  };
   const act = url.searchParams.get("act") === "1";
   const asc = url.searchParams.get("order") === "old";
   // 続きの位置。語ありは記事ID、語なしは「公開日時~記事ID」
@@ -230,7 +239,7 @@ async function handleSearch(url, env) {
     narrow();
     where.push("e.entry_id IN (SELECT rowid FROM entry_fts WHERE entry_fts MATCH ?)");
     binds.push(built.match);
-    if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
+    period(where, binds);
     if (Number.isFinite(cursor)) { where.push(`e.entry_id ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entries e ${joins} ` +
       `WHERE ${where.join(" AND ")} ORDER BY e.entry_id ${asc ? "ASC" : "DESC"} LIMIT ?`;
@@ -239,7 +248,7 @@ async function handleSearch(url, env) {
     where.push("entry_fts MATCH ?");
     binds.push(built.match);
     narrow();
-    if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
+    period(where, binds);
     if (Number.isFinite(cursor)) { where.push(`entry_fts.rowid ${asc ? ">" : "<"} ?`); binds.push(cursor); }
     sql = `SELECT ${cols} FROM entry_fts JOIN entries e ON e.entry_id = entry_fts.rowid ${joins} ` +
       `WHERE ${where.join(" AND ")} ORDER BY entry_fts.rowid ${asc ? "ASC" : "DESC"} LIMIT ?`;
@@ -265,14 +274,15 @@ async function handleSearch(url, env) {
       const op = asc ? ">" : "<";
       const stmts = [];
       const cond = ["e.member_no = ?"];
-      if (d) cond.push("e.published >= ? AND e.published < ?");
+      const pb = [];
+      period(cond, pb);
       if (cPub && Number.isFinite(cId)) cond.push(`(e.published ${op} ? OR (e.published = ? AND e.entry_id ${op} ?))`);
       const perMember = `SELECT ${cols} FROM entries e LEFT JOIN members mb ON mb.member_no = e.member_no ` +
         `LEFT JOIN blogs b ON b.blog = e.blog WHERE ${cond.join(" AND ")} ` +
         `ORDER BY e.published ${dir}, e.entry_id ${dir} LIMIT ?`;
       for (const m of people) {
         const bd = [m];
-        if (d) bd.push(d, d + "~");
+        bd.push(...pb);
         if (cPub && Number.isFinite(cId)) bd.push(cPub, cPub, cId);
         bd.push(PAGE + 1);
         stmts.push(env.DB.prepare(perMember).bind(...bd));
@@ -290,7 +300,7 @@ async function handleSearch(url, env) {
       return respondPage(merged, null, asc);
     }
     narrow();
-    if (d) { where.push("e.published >= ? AND e.published < ?"); binds.push(d, d + "~"); }
+    period(where, binds);
     if (cPub && Number.isFinite(cId)) {
       const op = asc ? ">" : "<";
       where.push(`(e.published ${op} ? OR (e.published = ? AND e.entry_id ${op} ?))`);
@@ -488,9 +498,11 @@ async function handleDay(url, env) {
 
 // 日付で見る: メンバー(・ブログ)の月ごとの件数と、ym を渡せばその月の日ごとの件数
 async function handleCalendar(url, env) {
-  const m = parseInt(url.searchParams.get("m") || "", 10);
-  if (!Number.isFinite(m)) return json({ months: [], days: [] });
-  const blog = (url.searchParams.get("b") || "").slice(0, 100);
+  // m は1人でも何人か(カンマ区切り)でもよい。誰も選んでいないときは数えない(全員分の集計は重い)
+  const ms = [...new Set((url.searchParams.get("m") || "").split(",")
+    .map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n)))].slice(0, 300);
+  if (!ms.length) return json({ months: [], days: [] });
+  const blog = ms.length === 1 ? (url.searchParams.get("b") || "").slice(0, 100) : "";
   const ymRaw = url.searchParams.get("ym") || "";
   const ym = /^\d{4}-\d{2}$/.test(ymRaw) ? ymRaw : "";
   // 検索語があれば、その語を含む記事だけを数える(カレンダーを検索の絞り込みに使えるように)。
@@ -498,8 +510,9 @@ async function handleCalendar(url, env) {
   const q = (url.searchParams.get("q") || "").slice(0, 400);
   const b0 = q.trim() && [...q.trim()].length <= MAX_Q ? buildMatch(q) : null;
   const built = b0 && !b0.onlyNot ? b0 : null;   // 除く語だけなら語なしで数える
-  let where = "member_no = ?" + (blog ? " AND blog = ?" : "");
-  const binds = blog ? [m, blog] : [m];
+  let where = (ms.length === 1 ? "member_no = ?" : `member_no IN (${ms.map(() => "?").join(",")})`) +
+    (blog ? " AND blog = ?" : "");
+  const binds = blog ? [...ms, blog] : [...ms];
   if (built) {
     where += " AND entry_id IN (SELECT rowid FROM entry_fts WHERE entry_fts MATCH ?)";
     binds.push(built.match);
