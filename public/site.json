@@ -3,5 +3,5 @@
  "site": "ハロプロ アメブロ検索",
  "member_title": "{who}のアメブロを検索｜ハロプロ アメブロ検索",
  "member_description": "{name}（{groups}）のアメブロ「{blogs}」{n}記事（{span}）を、本文の語や日付から探せる非公式の検索。一致した箇所の前後を見て元記事へ。毎時更新。",
- "member_lead": "{who}のアメブロ {n}記事（{span}）を、本文から探せます。"
+ "member_lead": "{who}のアメブロ {n}記事（{span}）を、日付と本文から探せます。"
 }
