@@ -465,13 +465,20 @@
       label, el("span", { class: "n" }, n ? `${n}/${mem.length}` : String(mem.length)));
   }
 
+  const GROUP_BUTTONS = ["モーニング娘。", "アンジュルム", "Juice=Juice", "つばきファクトリー", "BEYOOOOONDS",
+    "OCHA NORMA", "ロージークロニクル", "J.P ROOM", "UP-FRONT CREATE", "UP-FRONT PROMOTION"];
+
   function drawPanel() {
     const q = msearch.value.trim();
     glist.textContent = "";
     glist.append(groupTag("すべて", pool(), gView === null, () => setView(null)));
     const groups = allGroups.filter((g) => inGroup(g).length);   // 現役のみだと誰も残らないグループは出さない
     if (gView !== null && !groups.some((g) => g.no === gView)) gView = null;
-    for (const g of groups) glist.append(groupTag(g.name, inGroup(g), gView === g.no, () => setView(g.no)));
+    // ボタンはインスタ検索と同じグループだけ(カントリー娘。・メロン記念日・Berryz工房・℃-ute・カントリー・ガールズの人は「ブログで絞る」から選べる)
+    for (const name of GROUP_BUTTONS) {
+      const g = groups.find((x) => x.name === name);
+      if (g) glist.append(groupTag(g.name, inGroup(g), gView === g.no, () => setView(g.no)));
+    }
 
     mlist.textContent = "";
     const base = gView === null ? pool() : inGroup({ no: gView });
