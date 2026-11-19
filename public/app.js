@@ -143,13 +143,13 @@
   function render(r) {
     const meta = el("p", { class: "meta" },
       r.date.slice(0, 10) === today ? el("span", { class: "new" }, "NEW") : null,
-      el("span", { class: "who" }, r.member || r.blog_title),
       el("time", {}, r.date),
+      el("span", { class: "who" }, r.member || r.blog_title),
       // ブログのトップと、その人のテーマ(グループブログの中の個人ページ)へ飛べるようにする
       r.blog_title !== r.member
         ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener noreferrer" }, r.blog_title)
         : null,
-      r.theme_url ? el("a", { href: r.theme_url, target: "_blank", rel: "noopener noreferrer" }, `テーマ: ${r.theme}`) : null);
+      r.theme_url ? el("a", { href: r.theme_url, target: "_blank", rel: "noopener noreferrer" }, `テーマ：${r.theme}`) : null);
 
     const li = el("li", {},
       el("h2", {}, el("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, r.title)),
