@@ -53,12 +53,13 @@
           <option value="old">古い順</option>
         </select>
       </label>
+      <button type="button" class="ghost" id="reset">すべてリセット</button>
     </div>
 
     <div class="opts dates">
       <span class="dfield">いつから <span class="dsel" data-for="from" role="group" aria-label="いつから"><select class="y" aria-label="年"></select><select class="m" aria-label="月"></select></span></span>
       <span class="dfield">いつまで <span class="dsel" data-for="to" role="group" aria-label="いつまで"><select class="y" aria-label="年"></select><select class="m" aria-label="月"></select></span></span>
-      <button type="button" class="ghost" id="reset">すべてリセット</button>
+      <button type="button" class="ghost" id="reset-date">日付をリセット</button>
     </div>
 
     <div id="chips" class="chips" hidden></div>
@@ -82,10 +83,9 @@
         </div>
         <div id="mlist" class="taglist"></div>
       </div>
-      <details id="bsec" class="panel-sec bsec">
-        <summary>ブログで絞る</summary>
-        <div id="blist" class="taglist"></div>
-      </details>
+      <div class="panel-sec">
+        <select id="bsel" class="bsel" aria-label="ブログで絞る"><option value="">ブログで絞る</option></select>
+      </div>
     </div>
 
     <p class="hint">空白で区切って検索すると全部含む記事が並びます。語の前に「-」を付けると、その語を含まない記事に絞れます（例：チャーハン -ラーメン）。</p>

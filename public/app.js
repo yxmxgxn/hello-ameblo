@@ -498,22 +498,22 @@
     if (!shown.length) mlist.append(el("span", { class: "none" }, "該当なし"));
     mcount.textContent = `${fmt(shown.length)}人`;
 
-    // ブログ: 何人かで書くブログを先に、そのあと1人のブログを書き手の読み順で
-    const blist = $("blist");
-    blist.textContent = "";
+    // ブログ(プルダウン): 何人かで書くブログを先に、そのあと1人のブログを書き手の読み順で。
+    // グループを見ているときは、そのグループの人が書いているブログだけ
+    const inView = gView === null ? null : new Set(inGroup({ no: gView }).map((m) => m.no));
     const blogs = allBlogs.map((b) => ({ ...b, w: writersOf(b.id), name: blogName(b.id) }))
-      .filter((b) => b.w.length && (!q || b.name.includes(q) || b.w.some((m) => m.name.includes(q) || (m.kana || "").includes(q))));
+      .filter((b) => b.w.length && (!inView || b.w.some((m) => inView.has(m.no))) &&
+        (!q || b.name.includes(q) || b.w.some((m) => m.name.includes(q) || (m.kana || "").includes(q))));
     blogs.sort((a, b) => (b.w.length > 1) - (a.w.length > 1) ||
       (a.w.length > 1 ? a.name.localeCompare(b.name, "ja") : (a.w[0].kana || "んん").localeCompare(b.w[0].kana || "んん", "ja")));
-    for (const b of blogs) {
-      const on = !picked.size && blogPick === b.id;
-      blist.append(el("button", {
-        type: "button", class: "tag" + (on ? " on" : ""), "aria-pressed": on, onclick: () => pickBlog(b.id),
-      }, b.name));
-    }
-    if (!blogs.length) blist.append(el("span", { class: "none" }, "該当なし"));
-    // ブログだけで絞っている時と、名前で探している時は開いておく。それ以外は畳んでおく
-    if (!picked.size && blogPick || q) $("bsec").open = true;
+    const bsel = $("bsel"), cur = !picked.size ? blogPick : "";
+    bsel.textContent = "";
+    bsel.append(el("option", { value: "" }, cur ? "ブログの指定を外す" : "ブログで絞る"));
+    // 選んでいるブログは、グループを変えて一覧から外れても、選択肢に残す
+    if (cur && !blogs.some((b) => b.id === cur) && allBlogs.some((b) => b.id === cur)) bsel.append(el("option", { value: cur }, blogName(cur)));
+    for (const b of blogs) bsel.append(el("option", { value: b.id }, b.name));
+    bsel.value = cur;
+    bsel.classList.toggle("on", !!cur);
 
     // グループに絞っている時だけ、見えている人をまとめて選べる
     const allBtn = $("pick-all");
@@ -527,6 +527,12 @@
       queueSearch();
     };
   }
+
+  $("bsel").addEventListener("change", (e) => {
+    const id = e.target.value;
+    if (id) pickBlog(id);
+    else if (blogPick) pickBlog(blogPick);   // 「ブログの指定を外す」
+  });
 
   function setView(no) {
     gView = no;
@@ -660,6 +666,11 @@
     drawChips();
     drawPanel();
     search(true, false);
+  });
+  // 日付をリセット: いつから・いつまで・押した月や日だけを外す(メンバーや検索語はそのまま)
+  $("reset-date").addEventListener("click", () => {
+    current.d = current.from = current.to = "";
+    search(true, true);
   });
   $("pick-clear").addEventListener("click", () => {
     picked.clear();
