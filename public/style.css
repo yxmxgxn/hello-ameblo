@@ -185,8 +185,6 @@ a.tag { color: inherit; text-decoration: none; display: inline-block; }
   border: 1px solid var(--line);
   border-radius: 12px;
 }
-.cal-h { margin: 0 0 8px; font-size: .95rem; }
-.cal-note { font-weight: 400; font-size: .75rem; color: var(--muted); margin-left: 6px; }
 .years { display: grid; grid-template-columns: 3.2em repeat(12, minmax(0, 1fr)); gap: 3px; font-size: .72rem; }
 .years .yl { color: var(--muted); align-self: center; font-variant-numeric: tabular-nums; }
 .years .mh { color: var(--muted); text-align: center; }
@@ -207,6 +205,9 @@ a.tag { color: inherit; text-decoration: none; display: inline-block; }
 .years button.l3, .days button.l3 { background: var(--cell3); color: var(--accent-ink); }
 .years button.l4, .days button.l4 { background: var(--cell4); color: var(--accent-ink); }
 .years button.on, .days button.on { border-color: var(--text); }
+.years button.cur { box-shadow: inset 0 -2px 0 var(--text); }   /* 下のカレンダーに出している月 */
+.years[hidden] { display: none; }
+.years[hidden] + .month { margin-top: 0; }
 
 .month { margin-top: 14px; }
 .month-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
@@ -217,11 +218,14 @@ a.tag { color: inherit; text-decoration: none; display: inline-block; }
 .days .wd { text-align: center; color: var(--muted); font-size: .72rem; }
 .days button { min-height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1.2; white-space: nowrap; padding-left: 0; padding-right: 0; }
 .days button small { font-size: .68rem; opacity: .85; margin-left: 1px; }
+/* スマホの幅では、3桁の数がマスに収まるように「件」を省く */
+@media (max-width: 480px) { .days button small .u { display: none; } }
 .days button:disabled { color: var(--muted); }
 
-.period[hidden] { display: none; }   /* display:flex が hidden を打ち消すのを防ぐ */
-.period { display: flex; align-items: center; gap: 6px; margin: 8px 2px 0; font-size: .88rem; }
-.period button { padding: 0 8px; line-height: 1.6; background: var(--cell1); color: var(--text); font-weight: 400; }
+/* いつから・いつまで(年と月のプルダウン) */
+.dfield { display: flex; align-items: center; gap: 6px; }
+.dsel { display: inline-flex; gap: 2px; }
+.dsel select:disabled { opacity: .5; }
 
 .status { min-height: 1.7em; margin: 12px 2px; font-size: .9rem; color: var(--muted); }
 

@@ -49,6 +49,11 @@
       </label>
     </div>
 
+    <div class="opts dates">
+      <span class="dfield">いつから <span class="dsel" data-for="from" role="group" aria-label="いつから"><select class="y" aria-label="年"></select><select class="m" aria-label="月"></select></span></span>
+      <span class="dfield">いつまで <span class="dsel" data-for="to" role="group" aria-label="いつまで"><select class="y" aria-label="年"></select><select class="m" aria-label="月"></select></span></span>
+    </div>
+
     <div id="chips" class="chips" hidden></div>
 
     <!-- 選んだメンバー・ブログの中を Google で探す(本文の一致はこのサイト、言い換えや画像は Google で) -->
@@ -85,14 +90,12 @@
     <p class="hint">空白で区切ると「全部含む」記事を探します。検索語を入れずにメンバーだけ選ぶと、その人たちの記事が新しい順に並びます。</p>
   </form>
 
-  <p id="cal-hint" class="hint">メンバーを1人選ぶと、日付で見られます。</p>
+  <p id="cal-hint" class="hint">メンバーを選ぶと、日付で見られます。</p>
   <section id="cal" class="cal" hidden aria-label="日付で見る">
-    <h2 class="cal-h">日付で見る <span id="cal-note" class="cal-note">濃いほど投稿が多い月</span></h2>
     <div id="years" class="years"></div>
-    <div id="month" class="month" hidden></div>
+    <div id="month" class="month"></div>
   </section>
 
-  <p id="period" class="period" hidden><span id="period-t"></span><button id="period-x" type="button" aria-label="期間の指定を外す">×</button></p>
   <p id="status" class="status" aria-live="polite"></p>
   <ol id="results" class="results"></ol>
   <button id="more" class="more" type="button" hidden>もっと見る</button>
