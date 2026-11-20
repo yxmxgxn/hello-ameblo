@@ -694,6 +694,21 @@
   // 選んだメンバーのブログに site: で絞って Google を開く。何人かで書くブログで1人を選んでいたら名前も足す
   // (記事タイトルに名前が入るので、その人の記事に寄る)。誰も選んでいなければ開かない
   const G_MAX = 8;   // site: を OR でつなぐ数の上限(Google は32語まで)
+  // 選んでいる期間(押して選んだ月・日、またはいつから・いつまで)を、Google の after: / before: にする。
+  // after: はその年・月・日の初め、before: は終わりの次の日(その日は含まない)
+  function googlePeriod() {
+    const c = current || {};
+    const lo = c.d || c.from, hi = c.d || c.to;
+    const day = (t) => new Date(t).toISOString().slice(0, 10);
+    const out = [];
+    if (lo) out.push("after:" + day(Date.UTC(+lo.slice(0, 4), lo.length >= 7 ? +lo.slice(5, 7) - 1 : 0, lo.length >= 10 ? +lo.slice(8, 10) : 1)));
+    if (hi) {
+      const y = +hi.slice(0, 4);
+      out.push("before:" + day(hi.length >= 10 ? Date.UTC(y, +hi.slice(5, 7) - 1, +hi.slice(8, 10) + 1)
+        : hi.length >= 7 ? Date.UTC(y, +hi.slice(5, 7), 1) : Date.UTC(y + 1, 0, 1)));
+    }
+    return out.join(" ");
+  }
   function google() {
     const note = $("g-note");
     const ms = [...picked].map(memberOf).filter(Boolean);
@@ -703,8 +718,8 @@
     note.textContent = "";
     const site = ids.map((id) => `site:ameblo.jp/${id}`).join(" OR ");
     const name = ms.length === 1 && ids.some((id) => writersOf(id).length > 1) ? ms[0].name : "";
-    // 検索語を先に、site: はそのあと
-    const q = [qEl.value.trim(), name, ids.length > 1 ? `(${site})` : site].filter(Boolean).join(" ");
+    // 検索語を先に、site: と期間はそのあと
+    const q = [qEl.value.trim(), name, ids.length > 1 ? `(${site})` : site, googlePeriod()].filter(Boolean).join(" ");
     window.open("https://www.google.com/search?" + new URLSearchParams({ q }), "_blank", "noopener");
   }
   $("g-web").addEventListener("click", google);
