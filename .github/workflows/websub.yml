@@ -1,0 +1,31 @@
+name: WebSub
+
+# 実験用。アメブロ公式 RSS のハブ(WebSub)で更新が押し込まれるかを確かめる。
+# subscribe: ハブに購読を依頼する(7日で切れる)。log: 届いた通知と購読の状態を表示する。
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: subscribe(購読を依頼) / log(受信ログを見る)
+        default: log
+      blogs:
+        description: 購読するブログ(カンマ区切り)
+        default: "juicejuice-official,miyamotokarin-official"
+
+jobs:
+  websub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Worker
+        env:
+          CRAWL_API: ${{ vars.CRAWL_API }}
+          CRAWL_TOKEN: ${{ secrets.CRAWL_TOKEN }}
+          ACTION: ${{ inputs.action }}
+          BLOGS: ${{ inputs.blogs }}
+        run: |
+          if [ "$ACTION" = "subscribe" ]; then
+            body=$(python3 -c 'import json,os;print(json.dumps({"blogs":[b.strip() for b in os.environ["BLOGS"].split(",") if b.strip()]}))')
+            curl -sS -X POST "$CRAWL_API/api/crawl/websub-subscribe" -H "authorization: Bearer $CRAWL_TOKEN" -H "content-type: application/json" -d "$body" | python3 -m json.tool
+          else
+            curl -sS "$CRAWL_API/api/crawl/websub-log" -H "authorization: Bearer $CRAWL_TOKEN" | python3 -m json.tool
+          fi
