@@ -1301,6 +1301,20 @@ async function websubCallback(request, env, p) {
   const top = links[0];
   await env.DB.prepare("INSERT INTO websub_log (blog, received_at, bytes, items, latest_link, latest_pub) VALUES (?, ?, ?, ?, ?, ?)")
     .bind(blog, now, body.length, (body.match(/<item>/g) || []).length, top ? top[1] : null, top ? top[2] : null).run();
+  // 実験中は届いた時刻を Discord にも出す(アプリ通知との時間差を、ログを見に行かなくても比べられるように)
+  if (env.DISCORD_WEBHOOK) {
+    const jst = (d) => new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(11, 19);
+    const pub = top ? new Date(top[2]) : null;
+    const pubOk = pub && !isNaN(pub);
+    const lag = pubOk ? Math.round((Date.now() - pub.getTime()) / 1000) : null;
+    const lines = [
+      `ブログ: ${blog}`,
+      `届いた時刻: ${jst(new Date())}(日本時間)`,
+      pubOk ? `記事の公開時刻(RSS の pubDate): ${jst(pub)} → 公開から ${lag} 秒後に届いた` : "pubDate なし",
+      top ? top[1] : "(記事なし)",
+    ];
+    await notifyDiscord(env, "WebSub の通知が届いた(実験)", lines.join("\n")).catch(() => {});
+  }
   return new Response("ok", { status: 200 });
 }
 
