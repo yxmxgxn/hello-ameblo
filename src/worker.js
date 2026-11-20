@@ -645,12 +645,12 @@ async function memberPage(request, env, url) {
   }
 }
 
-// サイトマップ: トップ・日付で見る・このサイトについて と、記事のあるメンバー全員の /?m=番号
+// サイトマップ: トップ・日付で見る・このサイトについて・仕組み・更新履歴 と、記事のあるメンバー全員の /?m=番号
 async function sitemap(env) {
   const { results } = await env.DB.prepare(
     "SELECT member_no FROM members mb WHERE EXISTS (SELECT 1 FROM entries e WHERE e.member_no = mb.member_no) ORDER BY member_no"
   ).all();
-  const urls = ["/", "/day", "/about.html", ...results.map((r) => `/?m=${r.member_no}`)];
+  const urls = ["/", "/day", "/about", "/tech", "/changes", ...results.map((r) => `/?m=${r.member_no}`)];
   const body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
     urls.map((u) => `  <url><loc>${SITE_URL}${u}</loc></url>`).join("\n") + "\n</urlset>\n";
   return new Response(body, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
@@ -1261,6 +1261,93 @@ async function dailyReport(env) {
   if (!res.ok) throw new Error(`Discord ${res.status}`);
 }
 
+/* ============================ WebSub(実験: 受信を記録するだけ) ============================ */
+
+// アメブロの RSS(rssblog.ameba.jp/<blog>/rss20.xml)は hub に pubsubhubbub.appspot.com を宣言している。
+// 実際に更新を押し込んでくるかを確かめる実験。届いた時刻と中身の要約を websub_log に残すだけで、記事は取り込まない。
+//   コールバックURL: /websub/<blog>/<署名>   署名は CRAWL_TOKEN から作る(トークン自体はURLに出さない)
+//   購読の依頼    : POST /api/crawl/websub-subscribe {blogs:[...]}   結果の確認: GET /api/crawl/websub-log
+const WEBSUB_HUB = "https://pubsubhubbub.appspot.com/subscribe";
+const WEBSUB_LEASE = 60 * 60 * 24 * 7;   // 7日
+
+async function websubSig(env, blog) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.CRAWL_TOKEN || ""), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("websub:" + blog));
+  return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+}
+
+const websubTopic = (blog) => `https://rssblog.ameba.jp/${blog}/rss20.xml`;
+
+async function websubCallback(request, env, p) {
+  const m = p.match(/^\/websub\/([A-Za-z0-9_-]+)\/([0-9a-f]{24})$/);
+  if (!m || !env.CRAWL_TOKEN || m[2] !== (await websubSig(env, m[1]))) return new Response("Not found", { status: 404 });
+  const blog = m[1];
+  const now = new Date().toISOString();
+
+  if (request.method === "GET") {   // ハブからの購読確認
+    const q = new URL(request.url).searchParams;
+    if (q.get("hub.topic") !== websubTopic(blog)) return new Response("topic mismatch", { status: 404 });
+    if (q.get("hub.mode") === "subscribe") {
+      const lease = parseInt(q.get("hub.lease_seconds") || "0", 10);
+      await env.DB.prepare("UPDATE websub_subs SET verified_at = ?, lease_until = ? WHERE blog = ?")
+        .bind(now, lease ? new Date(Date.now() + lease * 1000).toISOString() : null, blog).run();
+    }
+    return new Response(q.get("hub.challenge") || "", { status: 200, headers: { "content-type": "text/plain" } });
+  }
+  if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+
+  const body = await request.text();
+  const links = [...body.matchAll(/<item>[\s\S]*?<link>([^<]*)<\/link>[\s\S]*?<pubDate>([^<]*)<\/pubDate>/g)];
+  const top = links[0];
+  await env.DB.prepare("INSERT INTO websub_log (blog, received_at, bytes, items, latest_link, latest_pub) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(blog, now, body.length, (body.match(/<item>/g) || []).length, top ? top[1] : null, top ? top[2] : null).run();
+  // 実験中は届いた時刻を Discord にも出す(アプリ通知との時間差を、ログを見に行かなくても比べられるように)
+  if (env.DISCORD_WEBHOOK) {
+    const jst = (d) => new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(11, 19);
+    const pub = top ? new Date(top[2]) : null;
+    const pubOk = pub && !isNaN(pub);
+    const lag = pubOk ? Math.round((Date.now() - pub.getTime()) / 1000) : null;
+    const lines = [
+      `ブログ: ${blog}`,
+      `届いた時刻: ${jst(new Date())}(日本時間)`,
+      pubOk ? `記事の公開時刻(RSS の pubDate): ${jst(pub)} → 公開から ${lag} 秒後に届いた` : "pubDate なし",
+      top ? top[1] : "(記事なし)",
+    ];
+    await notifyDiscord(env, "WebSub の通知が届いた(実験)", lines.join("\n")).catch(() => {});
+  }
+  return new Response("ok", { status: 200 });
+}
+
+async function websubSubscribe(request, env) {
+  const { blogs } = await request.json();
+  if (!Array.isArray(blogs) || !blogs.length || blogs.length > 10) return json({ error: "blogs は1〜10件" }, 400);
+  const origin = SITE_URL;   // ハブが届けるのは公開ドメイン(workers.dev は画面を転送するので使わない)
+  const out = [];
+  for (const blog of blogs) {
+    if (!/^[A-Za-z0-9_-]+$/.test(blog)) { out.push({ blog, error: "不正なブログID" }); continue; }
+    await env.DB.prepare("INSERT OR REPLACE INTO websub_subs (blog, requested_at, verified_at, lease_until) VALUES (?, ?, NULL, NULL)")
+      .bind(blog, new Date().toISOString()).run();
+    const form = new URLSearchParams({
+      "hub.mode": "subscribe",
+      "hub.topic": websubTopic(blog),
+      "hub.callback": `${origin}/websub/${blog}/${await websubSig(env, blog)}`,
+      "hub.verify": "async",
+      "hub.lease_seconds": String(WEBSUB_LEASE),
+    });
+    const r = await fetch(WEBSUB_HUB, { method: "POST", body: form });
+    out.push({ blog, hub_status: r.status, hub_body: (await r.text()).slice(0, 200) });
+  }
+  return json({ callback_origin: origin, results: out });
+}
+
+async function websubLog(env) {
+  const [{ results: subs }, { results: log }] = await env.DB.batch([
+    env.DB.prepare("SELECT * FROM websub_subs ORDER BY blog"),
+    env.DB.prepare("SELECT * FROM websub_log ORDER BY id DESC LIMIT 50"),
+  ]);
+  return json({ subs, log });
+}
+
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(dispatchCrawl(env));
@@ -1294,6 +1381,7 @@ export default {
     if (p === "/api/day" && request.method === "GET") return cached(request, ctx, () => handleDay(url, env));
     if (p === "/api/takedown" && request.method === "POST") return handleTakedown(request, env, ctx);
     if (p === "/_takedown") return handleTakedownAdmin(url, request, env);
+    if (p.startsWith("/websub/")) return websubCallback(request, env, p);
 
     if (p.startsWith("/api/crawl/")) {
       if (!authorized(request, env)) return new Response("Not found", { status: 404 });
@@ -1332,6 +1420,8 @@ async function crawlRoute(request, env, p, ctx) {
       if (route === "POST gone") return crawlGone(request, env);
       if (route === "POST delete") return crawlDelete(request, env);
       if (route === "POST alive") return crawlAlive(request, env);
+      if (route === "POST websub-subscribe") return websubSubscribe(request, env);
+      if (route === "GET websub-log") return websubLog(env);
       if (route === "POST notify-test") {
         if (!env.DISCORD_WEBHOOK) return json({ error: "DISCORD_WEBHOOK 未設定" }, 400);
         await notifyDiscord(env, "通知のテスト", "クロールが止まったときは、ここにこの形で届きます。");

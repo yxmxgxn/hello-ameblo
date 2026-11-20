@@ -9,7 +9,6 @@
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#2d8c3c">
 <title>ハロプロ アメブロ検索</title>
 <meta name="description" content="ハロー！プロジェクトのメンバーとOGのアメブロを、日付と本文から探せます。一致した箇所の前後を見て、元の記事（ameblo.jp）へ。">
 <meta property="og:title" content="ハロプロ アメブロ検索">
@@ -27,7 +26,7 @@
 <header class="site-head">
   <h1><a href="/">ハロプロ アメブロ検索</a></h1>
   <p class="lead">ハロー！プロジェクトのメンバーとOGのアメブロを、日付と本文から探せます。</p>
-  <p class="lead sec"><a href="/day">日付で見る</a> ｜ <a href="/about.html">このサイトについて</a></p>
+  <p class="lead sec"><a href="/day">日付で見る</a> ｜ <a href="/about">このサイトについて</a> ｜ <a href="/tech">仕組み</a> ｜ <a href="/changes">更新履歴</a></p>
 </header>
 
 <main>
@@ -36,6 +35,12 @@
       <input id="q" name="q" type="search" placeholder="本文から探す（空のままなら新着）" aria-label="検索語" enterkeyhint="search">
       <button type="submit">検索</button>
     </div>
+
+    <!-- 選んだメンバー・ブログの中を Google で探す(本文の一致はこのサイト、言い換えや画像は Google で) -->
+    <p class="gsearch">
+      <button id="g-web" type="button" class="ghost">Googleで検索</button>
+      <span id="g-note" class="g-note"></span>
+    </p>
 
     <div class="opts">
       <button id="pick-open" class="pick-open" type="button" aria-expanded="false" aria-controls="panel">
@@ -48,21 +53,16 @@
           <option value="old">古い順</option>
         </select>
       </label>
+      <button type="button" class="ghost" id="reset">すべてリセット</button>
     </div>
 
     <div class="opts dates">
       <span class="dfield">いつから <span class="dsel" data-for="from" role="group" aria-label="いつから"><select class="y" aria-label="年"></select><select class="m" aria-label="月"></select></span></span>
       <span class="dfield">いつまで <span class="dsel" data-for="to" role="group" aria-label="いつまで"><select class="y" aria-label="年"></select><select class="m" aria-label="月"></select></span></span>
-      <button type="button" class="ghost" id="reset">リセット</button>
+      <button type="button" class="ghost" id="reset-date">日付をリセット</button>
     </div>
 
     <div id="chips" class="chips" hidden></div>
-
-    <!-- 選んだメンバー・ブログの中を Google で探す(本文の一致はこのサイト、言い換えや画像は Google で) -->
-    <p class="gsearch">
-      <button id="g-web" type="button" class="ghost">選んだブログを Google で探す</button>
-      <span id="g-note" class="g-note"></span>
-    </p>
 
     <!-- メンバー選択パネル。グループを押すと下の一覧がそのグループの人だけになる(選ぶのは「全員選ぶ」か個別に) -->
     <div id="panel" class="panel" hidden>
@@ -83,16 +83,14 @@
         </div>
         <div id="mlist" class="taglist"></div>
       </div>
-      <details id="bsec" class="panel-sec bsec">
-        <summary>ブログで絞る</summary>
-        <div id="blist" class="taglist"></div>
-      </details>
+      <div class="panel-sec">
+        <select id="bsel" class="bsel" aria-label="ブログで絞る"><option value="">ブログで絞る</option></select>
+      </div>
     </div>
 
-    <p class="hint">メンバーを選択すると、その人たちだけに絞り込めます。空白で区切って検索すると全部含む記事が並びます。</p>
+    <p class="hint">空白で区切って検索すると全部含む記事が並びます。語の前に「-」を付けると、その語を含まない記事に絞れます（例：チャーハン -ラーメン）。</p>
   </form>
 
-  <p id="cal-hint" class="hint">メンバーを選ぶと、日付で見られます。</p>
   <section id="cal" class="cal" hidden aria-label="日付で見る">
     <div id="years" class="years"></div>
     <div id="month" class="month"></div>
@@ -105,7 +103,7 @@
 
 <footer class="site-foot">
   <p id="stats"></p>
-  <p class="share">このサイトを紹介する：<a href="https://x.com/intent/post?text=%E3%83%8F%E3%83%AD%E3%83%97%E3%83%AD%20%E3%82%A2%E3%83%A1%E3%83%96%E3%83%AD%E6%A4%9C%E7%B4%A2%EF%BD%9C%E3%83%A1%E3%83%B3%E3%83%90%E3%83%BC%E3%81%AE%E3%82%A2%E3%83%A1%E3%83%96%E3%83%AD%E3%82%92%E3%80%81%E6%9C%AC%E6%96%87%E3%81%A8%E6%97%A5%E4%BB%98%E3%81%8B%E3%82%89%E6%8E%A2%E3%81%9B%E3%82%8B%E3%82%B5%E3%82%A4%E3%83%88%0Ahttps%3A%2F%2Fameblo.karin-archive.com%2F" target="_blank" rel="noopener noreferrer">X</a><a href="https://social-plugins.line.me/lineit/share?url=https%3A%2F%2Fameblo.karin-archive.com%2F" target="_blank" rel="noopener noreferrer">LINE</a><button type="button" class="ghost" onclick="navigator.clipboard.writeText('https://ameblo.karin-archive.com/').then(()=>{this.textContent='コピーしました'})">URLをコピー</button></p>
+  <p class="share">このサイトを紹介する：<a href="https://x.com/intent/post?text=%E3%83%8F%E3%83%AD%E3%83%97%E3%83%AD%20%E3%82%A2%E3%83%A1%E3%83%96%E3%83%AD%E6%A4%9C%E7%B4%A2%EF%BD%9C%E3%83%A1%E3%83%B3%E3%83%90%E3%83%BC%E3%81%A8OG%E3%81%AE%E3%82%A2%E3%83%A1%E3%83%96%E3%83%AD%E3%82%92%E3%80%81%E6%97%A5%E4%BB%98%E3%81%A8%E6%9C%AC%E6%96%87%E3%81%8B%E3%82%89%E6%8E%A2%E3%81%9B%E3%82%8B%E3%82%B5%E3%82%A4%E3%83%88%0Ahttps%3A%2F%2Fameblo.karin-archive.com%2F" target="_blank" rel="noopener noreferrer">X</a><a href="https://social-plugins.line.me/lineit/share?url=https%3A%2F%2Fameblo.karin-archive.com%2F" target="_blank" rel="noopener noreferrer">LINE</a><button type="button" class="ghost" onclick="navigator.clipboard.writeText('https://ameblo.karin-archive.com/').then(()=>{this.textContent='コピーしました'})">URLをコピー</button></p>
   <p>本文すべてはこのサイトでは表示しません。記事は Ameba ブログ（ameblo.jp）でお読みください。</p>
 </footer>
 

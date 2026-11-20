@@ -69,13 +69,18 @@
 
   const memberOf = (no) => allMembers.find((m) => m.no === no);
 
-  // ブログの表示名。1人だけのブログは「名前（ブログ名）」、何人かで書くブログはブログ名だけ
+  // ブログの表示名。1人だけのブログは「名前（ブログ名）」、何人かで書くブログはブログ名だけ。
+  // ブログ名の引用符は半角の「'」にそろえる(「モーニング娘。‘26」「モーニング娘。’26」が混ざっているため)。
+  // 同じ名前のブログが2つあるとき(つばきファクトリーの旧・新)は、ブログのIDを添えて区別する
+  const tidy = (s) => String(s || "").replace(/[‘’]/g, "'");
   const writersOf = (id) => allMembers.filter((m) => m.blogs.some((b) => b.id === id));
   function blogName(id) {
     const b = allBlogs.find((x) => x.id === id);
     const w = writersOf(id);
-    const title = b ? b.title : id;
-    return w.length === 1 ? `${w[0].name}（${title}）` : title;
+    const title = tidy(b ? b.title : id);
+    if (w.length === 1) return `${w[0].name}（${title}）`;
+    const same = allBlogs.filter((x) => tidy(x.title) === title && writersOf(x.id).length !== 1).length > 1;
+    return same ? `${title}（${id}）` : title;
   }
 
   // いまの条件を文章にする(「チャーハン ／ 竹内朱莉・田村芽実 ／ 2016年」)。何で絞っているかを画面に出すため
@@ -144,10 +149,10 @@
     const meta = el("p", { class: "meta" },
       r.date.slice(0, 10) === today ? el("span", { class: "new" }, "NEW") : null,
       el("time", {}, r.date),
-      el("span", { class: "who" }, r.member || r.blog_title),
+      el("span", { class: "who" }, r.member || tidy(r.blog_title)),
       // ブログのトップと、その人のテーマ(グループブログの中の個人ページ)へ飛べるようにする
       r.blog_title !== r.member
-        ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener noreferrer" }, r.blog_title)
+        ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener noreferrer" }, tidy(r.blog_title))
         : null,
       r.theme_url ? el("a", { href: r.theme_url, target: "_blank", rel: "noopener noreferrer" }, `テーマ：${r.theme}`) : null);
 
@@ -216,7 +221,7 @@
         await explainEmpty(current);
       } else {
         const cond = condText(current);
-        statusEl.textContent = (cond ? cond + " ／ " : current.q ? "" : "新着 ") +
+        statusEl.textContent = (cond ? cond + " ／ " : "") +
           `${fmt(shown)} 件表示${cursor ? "（まだあります）" : ""}`;
       }
       if (blogNote) {
@@ -264,9 +269,6 @@
   // keepView: カレンダーの ‹ › で月を動かしたとき(出す月を期間から決め直さない)
   async function loadCalendar(keepView) {
     const my = ++calNo;
-    $("cal-hint").hidden = picked.size > 0;
-    // いつから・いつまでも、メンバーを選んでいるときだけ出す
-    document.querySelectorAll(".dfield").forEach((e) => { e.hidden = !picked.size; });
     if (!picked.size) { calEl.hidden = true; cal = null; syncDates(); return; }
     // 検索語があれば、カレンダーの数字は「その語を含む記事の数」になる
     const base = `/api/calendar?m=${current.m}&b=${encodeURIComponent(current.b)}` +
@@ -374,13 +376,16 @@
 
   /* ---------------- いつから・いつまで(年・月を選ぶ) ---------------- */
   // 日はカレンダーで選ぶので、ここは年と月だけ。年だけでも選べる(いつからはその年の初め、いつまではその年の終わり)。
-  // 選べるのは投稿のある年・月だけ(メンバーを選んでいないときは、いつから・いつまでは出さない)
+  // メンバーを選んでいるときは、投稿のある年・月だけ選べる。選んでいないときは、全部の年・月から選べる(いつも出しておく)
+  const FIRST_YEAR = 2007;   // このサイトに記事のある、いちばん古い年
   const boxOf = (id) => document.querySelector(`.dsel[data-for="${id}"]`);
   function opt(sel, value, text) { sel.append(el("option", { value }, text)); }
   function syncDates() {
     const all = cal ? [...cal.months.keys()] : [];
     let years = [...new Set(all.map((k) => k.slice(0, 4)))];
     years.reverse();   // 新しい年を上に
+    // メンバーを選んでいないとき(月ごとの数を持っていないとき)は、アメブロが始まった年から今年までを出す
+    if (!cal) { years = []; for (let y = new Date().getFullYear(); y >= FIRST_YEAR; y--) years.push(String(y)); }
     for (const id of ["from", "to"]) {
       // 月・日を押して選んだ期間(d)は、いつから・いつまでの両方にその年・月を出す
       const v = current.d ? current.d.slice(0, 7) : current[id];
@@ -498,22 +503,24 @@
     if (!shown.length) mlist.append(el("span", { class: "none" }, "該当なし"));
     mcount.textContent = `${fmt(shown.length)}人`;
 
-    // ブログ: 何人かで書くブログを先に、そのあと1人のブログを書き手の読み順で
-    const blist = $("blist");
-    blist.textContent = "";
+    // ブログ(プルダウン): 何人かで書くブログを先に、そのあと1人のブログを書き手の読み順で。
+    // グループを見ているときは、そのグループの人が書いているブログだけ
+    const inView = gView === null ? null : new Set(inGroup({ no: gView }).map((m) => m.no));
     const blogs = allBlogs.map((b) => ({ ...b, w: writersOf(b.id), name: blogName(b.id) }))
-      .filter((b) => b.w.length && (!q || b.name.includes(q) || b.w.some((m) => m.name.includes(q) || (m.kana || "").includes(q))));
+      .filter((b) => b.w.length && (!inView || b.w.some((m) => inView.has(m.no))) &&
+        (!q || b.name.includes(q) || b.w.some((m) => m.name.includes(q) || (m.kana || "").includes(q))));
     blogs.sort((a, b) => (b.w.length > 1) - (a.w.length > 1) ||
       (a.w.length > 1 ? a.name.localeCompare(b.name, "ja") : (a.w[0].kana || "んん").localeCompare(b.w[0].kana || "んん", "ja")));
-    for (const b of blogs) {
-      const on = !picked.size && blogPick === b.id;
-      blist.append(el("button", {
-        type: "button", class: "tag" + (on ? " on" : ""), "aria-pressed": on, onclick: () => pickBlog(b.id),
-      }, b.name));
-    }
-    if (!blogs.length) blist.append(el("span", { class: "none" }, "該当なし"));
-    // ブログだけで絞っている時と、名前で探している時は開いておく。それ以外は畳んでおく
-    if (!picked.size && blogPick || q) $("bsec").open = true;
+    const bsel = $("bsel"), cur = !picked.size ? blogPick : "";
+    bsel.textContent = "";
+    bsel.append(el("option", { value: "" }, cur ? "ブログの指定を外す" : "ブログで絞る"));
+    // 選んでいるブログは、グループを変えて一覧から外れても、選択肢に残す
+    if (cur && !blogs.some((b) => b.id === cur) && allBlogs.some((b) => b.id === cur)) bsel.append(el("option", { value: cur }, blogName(cur)));
+    for (const b of blogs) bsel.append(el("option", { value: b.id }, b.name));
+    bsel.value = cur;
+    bsel.classList.toggle("on", !!cur);
+    // 選べるブログが1つ以下なら、絞る意味がないので出さない
+    bsel.parentElement.hidden = blogs.length <= 1;
 
     // グループに絞っている時だけ、見えている人をまとめて選べる
     const allBtn = $("pick-all");
@@ -527,6 +534,12 @@
       queueSearch();
     };
   }
+
+  $("bsel").addEventListener("change", (e) => {
+    const id = e.target.value;
+    if (id) pickBlog(id);
+    else if (blogPick) pickBlog(blogPick);   // 「ブログの指定を外す」
+  });
 
   function setView(no) {
     gView = no;
@@ -577,8 +590,6 @@
       to: (keepPeriod && current ? current.to : "") || "",
       order: orderEl.value,
     };
-    // 期間はメンバーを選んでいるときだけ(日付で見るのも、メンバーを選んでいるときだけなので)
-    if (!picked.size) current.d = current.from = current.to = "";
     cursor = null;
 
     const u = new URL(location.href);
@@ -663,6 +674,11 @@
     drawPanel();
     search(true, false);
   });
+  // 日付をリセット: いつから・いつまで・押した月や日だけを外す(メンバーや検索語はそのまま)
+  $("reset-date").addEventListener("click", () => {
+    current.d = current.from = current.to = "";
+    search(true, true);
+  });
   $("pick-clear").addEventListener("click", () => {
     picked.clear();
     blogPick = "";
@@ -687,7 +703,8 @@
     note.textContent = "";
     const site = ids.map((id) => `site:ameblo.jp/${id}`).join(" OR ");
     const name = ms.length === 1 && ids.some((id) => writersOf(id).length > 1) ? ms[0].name : "";
-    const q = [ids.length > 1 ? `(${site})` : site, name, qEl.value.trim()].filter(Boolean).join(" ");
+    // 検索語を先に、site: はそのあと
+    const q = [qEl.value.trim(), name, ids.length > 1 ? `(${site})` : site].filter(Boolean).join(" ");
     window.open("https://www.google.com/search?" + new URLSearchParams({ q }), "_blank", "noopener");
   }
   $("g-web").addEventListener("click", google);
