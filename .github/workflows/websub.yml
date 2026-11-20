@@ -23,9 +23,11 @@ jobs:
           ACTION: ${{ inputs.action }}
           BLOGS: ${{ inputs.blogs }}
         run: |
+          api="${CRAWL_API%/}"   # 変数の末尾に / が付いていても動くように
           if [ "$ACTION" = "subscribe" ]; then
             body=$(python3 -c 'import json,os;print(json.dumps({"blogs":[b.strip() for b in os.environ["BLOGS"].split(",") if b.strip()]}))')
-            curl -sS -X POST "$CRAWL_API/api/crawl/websub-subscribe" -H "authorization: Bearer $CRAWL_TOKEN" -H "content-type: application/json" -d "$body" | python3 -m json.tool
+            curl -sS -X POST "$api/api/crawl/websub-subscribe" -H "authorization: Bearer $CRAWL_TOKEN" -H "content-type: application/json" -d "$body" -o out.json -w "HTTP %{http_code}\n"
           else
-            curl -sS "$CRAWL_API/api/crawl/websub-log" -H "authorization: Bearer $CRAWL_TOKEN" | python3 -m json.tool
+            curl -sS "$api/api/crawl/websub-log" -H "authorization: Bearer $CRAWL_TOKEN" -o out.json -w "HTTP %{http_code}\n"
           fi
+          python3 -m json.tool out.json || head -c 1000 out.json
