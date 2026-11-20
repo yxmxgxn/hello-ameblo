@@ -645,12 +645,12 @@ async function memberPage(request, env, url) {
   }
 }
 
-// サイトマップ: トップ・日付で見る・このサイトについて と、記事のあるメンバー全員の /?m=番号
+// サイトマップ: トップ・日付で見る・このサイトについて・仕組み・更新履歴 と、記事のあるメンバー全員の /?m=番号
 async function sitemap(env) {
   const { results } = await env.DB.prepare(
     "SELECT member_no FROM members mb WHERE EXISTS (SELECT 1 FROM entries e WHERE e.member_no = mb.member_no) ORDER BY member_no"
   ).all();
-  const urls = ["/", "/day", "/about.html", ...results.map((r) => `/?m=${r.member_no}`)];
+  const urls = ["/", "/day", "/about", "/tech", "/changes", ...results.map((r) => `/?m=${r.member_no}`)];
   const body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
     urls.map((u) => `  <url><loc>${SITE_URL}${u}</loc></url>`).join("\n") + "\n</urlset>\n";
   return new Response(body, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
