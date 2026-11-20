@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: subscribe(購読を依頼) / log(受信ログを見る)
+        description: 何をするか
+        type: choice
+        options:
+          - log
+          - subscribe
         default: log
       blogs:
         description: 購読するブログ(カンマ区切り)
