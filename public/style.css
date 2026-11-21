@@ -1,3 +1,4 @@
+@charset "UTF-8";
 :root {
   /* 端末がダークモードでも常に明るい配色で出す(ブラウザの自動ダーク化も止める) */
   color-scheme: only light;
