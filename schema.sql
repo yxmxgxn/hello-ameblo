@@ -129,19 +129,6 @@ CREATE TABLE IF NOT EXISTS takedown (
 -- (1回13万行・5秒近くかかった。2026-10-21)。rowid(=記事ID)が末尾に付くので (published, entry_id) の順で読める
 CREATE INDEX IF NOT EXISTS entries_blog_pub ON entries(blog, published);
 
--- WebSub(アメブロ公式 RSS のハブ通知)の実験。受信を記録するだけで、記事は取り込まない
-CREATE TABLE IF NOT EXISTS websub_subs (
-  blog        TEXT PRIMARY KEY,
-  requested_at TEXT,       -- ハブへ購読を依頼した時刻
-  verified_at TEXT,        -- ハブが確認の GET を送ってきた時刻
-  lease_until TEXT         -- 購読の期限(切れる前に再購読が要る)
-);
-CREATE TABLE IF NOT EXISTS websub_log (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  blog        TEXT NOT NULL,
-  received_at TEXT NOT NULL,   -- Worker が受け取った時刻(UTC ISO)
-  bytes       INTEGER,
-  items       INTEGER,         -- 通知に含まれた記事数
-  latest_link TEXT,            -- 通知内でいちばん新しい記事の URL
-  latest_pub  TEXT             -- その pubDate
-);
+-- WebSub の実験で作った表。実験をやめたので片付ける(2026-11-22)
+DROP TABLE IF EXISTS websub_log;
+DROP TABLE IF EXISTS websub_subs;
