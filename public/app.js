@@ -330,7 +330,7 @@
     }
   }
 
-  // 日のカレンダー。‹ › は投稿がある月へ移るだけ(絞り込みは変えない)。日を押すとその日だけになる
+  // 日のカレンダー。‹ › « » は投稿がある月へ移るだけ(絞り込みは変えない)。日を押すとその日だけになる
   function drawMonth() {
     monthEl.textContent = "";
     if (!view) return;
@@ -341,10 +341,15 @@
     const next = yms.find((k) => ymNo(k) > cur) || null;
     const go = (to) => { view = to; loadCalendar(true).catch(() => {}); };
 
+    // ‹ › は1つ前・1つ先の投稿がある月、« » はいちばん古い・いちばん新しい投稿がある月
+    const oldest = yms[0] !== view ? yms[0] : null;
+    const newest = yms[yms.length - 1] !== view ? yms[yms.length - 1] : null;
+    const nav = (to, label, text) => el("button", { type: "button", disabled: !to, onclick: () => go(to), "aria-label": label }, text);
+
     monthEl.append(el("div", { class: "month-nav" },
-      el("button", { type: "button", disabled: !prev, onclick: () => go(prev), "aria-label": "前の投稿がある月" }, "‹"),
+      el("span", { class: "side" }, nav(oldest, "いちばん古い投稿がある月", "«"), nav(prev, "前の投稿がある月", "‹")),
       el("strong", {}, `${y}年${m}月（${fmt(cal.months.get(view))}件）`),
-      el("button", { type: "button", disabled: !next, onclick: () => go(next), "aria-label": "次の投稿がある月" }, "›")));
+      el("span", { class: "side" }, nav(next, "次の投稿がある月", "›"), nav(newest, "いちばん新しい投稿がある月", "»"))));
 
     const grid = el("div", { class: "days" });
     ["日", "月", "火", "水", "木", "金", "土"].forEach((w) => grid.append(el("span", { class: "wd" }, w)));

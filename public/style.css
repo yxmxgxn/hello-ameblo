@@ -212,6 +212,7 @@ a.tag { color: inherit; text-decoration: none; display: inline-block; }
 
 .month { margin-top: 14px; }
 .month-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.month-nav .side { display: inline-flex; gap: 4px; }
 .month-nav strong { font-size: .95rem; }
 .month-nav button { background: transparent; color: var(--accent); padding: 4px 10px; border: 1px solid var(--line); }
 .month-nav button:disabled { opacity: .3; cursor: default; }
