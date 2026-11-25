@@ -467,12 +467,9 @@
     pickLabel.textContent = picked.size ? `メンバー選択　現在${picked.size}人` : "メンバー選択";
   }
 
-  // グループのタグは「一覧をそのグループに絞って見せる」切り替え。押しても誰も選ばれない。
-  // 数字は「選んでいる人数/その中の人数」
-  function groupTag(label, mem, on, onclick) {
-    const n = mem.filter((m) => picked.has(m.no)).length;
-    return el("button", { type: "button", class: "tag" + (on ? " on" : ""), "aria-pressed": on, onclick },
-      label, el("span", { class: "n" }, n ? `${n}/${mem.length}` : String(mem.length)));
+  // グループのタグは「一覧をそのグループに絞って見せる」切り替え。押しても誰も選ばれない
+  function groupTag(label, on, onclick) {
+    return el("button", { type: "button", class: "tag" + (on ? " on" : ""), "aria-pressed": on, onclick }, label);
   }
 
   const GROUP_BUTTONS = ["モーニング娘。", "アンジュルム", "Juice=Juice", "つばきファクトリー", "BEYOOOOONDS",
@@ -481,13 +478,13 @@
   function drawPanel() {
     const q = msearch.value.trim();
     glist.textContent = "";
-    glist.append(groupTag("すべて", pool(), gView === null, () => setView(null)));
+    glist.append(groupTag("すべて", gView === null, () => setView(null)));
     const groups = allGroups.filter((g) => inGroup(g).length);   // 現役のみだと誰も残らないグループは出さない
     if (gView !== null && !groups.some((g) => g.no === gView)) gView = null;
     // ボタンはインスタ検索と同じグループだけ(カントリー娘。・メロン記念日・Berryz工房・℃-ute・カントリー・ガールズの人は「ブログで絞る」から選べる)
     for (const name of GROUP_BUTTONS) {
       const g = groups.find((x) => x.name === name);
-      if (g) glist.append(groupTag(g.name, inGroup(g), gView === g.no, () => setView(g.no)));
+      if (g) glist.append(groupTag(g.name, gView === g.no, () => setView(g.no)));
     }
 
     mlist.textContent = "";
