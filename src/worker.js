@@ -545,7 +545,7 @@ function shortTitle(t) {
 }
 
 async function handleMembers(env) {
-  const [{ results: rows }, { results: stats }, { results: groups }, { results: blogRows }] = await env.DB.batch([
+  const [{ results: rows }, { results: stats }, { results: groups }, { results: blogRows }, { results: counts }] = await env.DB.batch([
     env.DB.prepare(
       "SELECT DISTINCT mb.member_no, mb.name, mb.kana, mm.groups, mm.active, t.blog, b.title, b.newest_id FROM members mb " +
       // 対応表のブログに、例外指定で記事が入ったブログ(member_blogs)も足す
@@ -561,7 +561,10 @@ async function handleMembers(env) {
     env.DB.prepare("SELECT group_no, name FROM groups ORDER BY group_no"),
     // ブログだけで絞るときの選択肢(記事が1件でもあるブログ)
     env.DB.prepare("SELECT blog, title FROM blogs WHERE ingested > 0 ORDER BY blog"),
+    // メンバーの名前の後ろに出す記事数((member_no, published) の索引だけで数える)
+    env.DB.prepare("SELECT member_no, count(*) AS n FROM entries GROUP BY member_no"),
   ]);
+  const cnt = new Map(counts.map((r) => [r.member_no, r.n]));
   const members = [];
   for (const r of rows) {
     let mb = members[members.length - 1];
@@ -571,6 +574,7 @@ async function handleMembers(env) {
         name: r.name,
         kana: r.kana || "",
         active: r.active ? 1 : 0,
+        n: cnt.get(r.member_no) || 0,
         groups: (r.groups || "").split(",").filter(Boolean).map(Number),
         blogs: [],
       });
