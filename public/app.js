@@ -500,7 +500,7 @@
         class: "tag" + (picked.has(m.no) ? " on" : ""),
         "aria-pressed": picked.has(m.no),
         onclick: (ev) => { ev.preventDefault(); toggleMember(m.no); },
-      }, `${m.name} (${fmt(m.n)})`));
+      }, m.name));
     }
     if (!shown.length) mlist.append(el("span", { class: "none" }, "該当なし"));
     mcount.textContent = `${fmt(shown.length)}人`;
