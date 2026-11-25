@@ -521,6 +521,7 @@
     for (const b of blogs) bsel.append(el("option", { value: b.id }, b.name));
     bsel.value = cur;
     bsel.classList.toggle("on", !!cur);
+    $("bclear").hidden = !cur;   // 右端の ×。押すと、同じブログをもう一度押したのと同じで外れる
     // 選べるブログが1つ以下なら、絞る意味がないので出さない
     bsel.parentElement.hidden = blogs.length <= 1;
 
@@ -536,6 +537,8 @@
       queueSearch();
     };
   }
+
+  $("bclear").addEventListener("click", () => { if (blogPick) pickBlog(blogPick); });
 
   $("bsel").addEventListener("change", (e) => {
     const id = e.target.value;

@@ -358,6 +358,10 @@ main.wide, .site-head.wide, .site-foot.wide { max-width: 1040px; }
 
 .bsel { max-width: 100%; }
 .panel-sec[hidden] { display: none; }
+.bline { display: flex; align-items: center; gap: 6px; }
+.bline .bsel { flex: 0 1 auto; min-width: 0; }
+.bclear { margin-left: auto; background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 4px 10px; line-height: 1.2; }
+.bclear[hidden] { display: none; }
 .bsel.on { border-color: var(--accent); color: var(--accent); }
 
 /* フッターの「このサイトを紹介する」 */
