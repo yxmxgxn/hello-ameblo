@@ -149,7 +149,9 @@
     const meta = el("p", { class: "meta" },
       r.date.slice(0, 10) === today ? el("span", { class: "new" }, "NEW") : null,
       el("time", {}, r.date),
-      el("span", { class: "who" }, r.member || tidy(r.blog_title)),
+      r.member && memberOf(r.member_no)
+        ? el("button", { type: "button", class: "who link", onclick: () => askMember(r.member_no) }, r.member)
+        : el("span", { class: "who" }, r.member || tidy(r.blog_title)),
       // ブログのトップと、その人のテーマ(グループブログの中の個人ページ)へ飛べるようにする
       r.blog_title !== r.member
         ? el("a", { href: r.blog_url, target: "_blank", rel: "noopener noreferrer" }, tidy(r.blog_title))
@@ -558,6 +560,28 @@
     drawChips();
     drawPanel();
     queueSearch();
+  }
+
+  // 結果の名前を押すと、小さなポップアップで「○○ のブログだけ見る」を出す。押すとその人だけの検索になる
+  function askMember(no) {
+    const m = memberOf(no);
+    if (!m) return;
+    const dlg = el("dialog", { class: "ask" },
+      el("p", {}, el("strong", {}, m.name)),
+      el("div", { class: "ask-btns" },
+        el("button", { type: "button", class: "go", onclick: () => {
+          dlg.close();
+          picked.clear(); picked.add(no); blogPick = "";
+          drawChips();
+          drawPanel();
+          search(true, false);
+          window.scrollTo({ top: 0 });
+        } }, `${m.name} のブログだけ見る`),
+        el("button", { type: "button", class: "ghost", onclick: () => dlg.close() }, "閉じる")));
+    dlg.addEventListener("close", () => dlg.remove());
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });   // 外側を押しても閉じる
+    document.body.append(dlg);
+    dlg.showModal();
   }
 
   function toggleMember(no) {

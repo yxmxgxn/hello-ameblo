@@ -214,7 +214,7 @@ async function handleSearch(url, env) {
   }
   // 語も絞り込みも無ければ、全ブログの新着をそのまま並べる(トップページ)
 
-  const cols = "e.entry_id, e.blog, e.title, e.published, e.theme_id, e.theme_name, e.body, e.restricted, " +
+  const cols = "e.entry_id, e.blog, e.title, e.published, e.theme_id, e.theme_name, e.body, e.restricted, e.member_no, " +
     "mb.name AS member, b.title AS blog_title";
   // メンバーを名指ししているなら、現役かどうかの判定はもう要らない
   // ブログを明示しているときは、現役かどうかで記事を落とさない(書き手不明・OG の記事も出す)
@@ -340,6 +340,7 @@ function respondPage(results, built, asc) {
     url: entryUrl(r.blog, r.entry_id),
     title: r.title || "(無題)",
     date: (r.published || "").slice(0, 16).replace("T", " "),
+    member_no: r.member_no,
     member: r.member || null,
     blog: r.blog,
     blog_title: shortTitle(r.blog_title) || r.blog,

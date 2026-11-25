@@ -250,6 +250,11 @@ a.tag { color: inherit; text-decoration: none; display: inline-block; }
 .results h2 a:hover { text-decoration: underline; }
 .meta { margin: 2px 0 6px; font-size: .8rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0 10px; }
 .meta .who { color: var(--text); font-weight: 600; }
+.meta button.who { font: inherit; font-weight: 600; padding: 0; background: none; border: 0; border-bottom: 1px dotted var(--muted); border-radius: 0; cursor: pointer; }
+.ask { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); padding: 16px 18px; max-width: min(90vw, 360px); }
+.ask::backdrop { background: rgba(0, 0, 0, .4); }
+.ask p { margin: 0 0 12px; }
+.ask-btns { display: flex; flex-wrap: wrap; gap: 8px; }
 .meta .new {
   color: var(--accent);   /* 緑の長方形に白抜きだと文字が上に寄って他の項目と揃わないので、緑の文字だけにする */
   font-weight: 700;
