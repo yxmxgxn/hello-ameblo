@@ -372,3 +372,8 @@ main.wide, .site-head.wide, .site-foot.wide { max-width: 1040px; }
 /* フッターの「このサイトを紹介する」 */
 .site-foot .share { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 10px 0; }
 .site-foot .share .ghost { padding: 3px 10px; font-size: .78rem; }
+
+/* リンク集(/links) */
+.links { list-style: none; margin: 0 0 8px; padding: 0; }
+.links li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.links .u { color: var(--muted); font-size: .78rem; word-break: break-all; }

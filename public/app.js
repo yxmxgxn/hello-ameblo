@@ -744,8 +744,7 @@
     allBlogs = d.blogs || [];
     const s = d.stats || {};
     if (s.ingested) {
-      $("stats").textContent = `収録 ${fmt(s.ingested)} 記事 / ${fmt(s.blogs)} ブログ` +
-        (s.total > s.ingested ? `（全 ${fmt(s.total)} 記事を取り込み中）` : "");
+      $("stats").textContent = `収録 ${fmt(s.ingested)} 記事 / ${fmt(s.blogs)} ブログ`;
     }
   }).catch(() => {}).then(() => siteReady).finally(fromUrl);
 })();
